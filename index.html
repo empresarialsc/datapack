@@ -1392,6 +1392,30 @@ async function ghPublish(bytes){
   const p=await fetch(url,{method:'PUT',headers:{...h,'Content-Type':'application/json'},body:JSON.stringify({message:`Atualização dos dados do painel (${new Date().toLocaleString('pt-BR')})`,content:b64(bytes),branch,...(sha?{sha}:{})})});
   if(!p.ok)throw new Error(await ghErr(p));
 }
+async function ghDiagnose(){
+  const {owner,repo,branch,path,token}=PUBCFG;const out=[];
+  const h={Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
+  if(!owner||!repo||!token){out.push({ok:false,t:'Preencha usuário, repositório e token.'});return out;}
+  try{
+    const me=await fetch('https://api.github.com/user',{headers:h,cache:'no-store'});
+    if(me.status===401){out.push({ok:false,t:'O GitHub recusou o token: ele está incorreto, incompleto ou expirado. Gere um novo e cole o código inteiro (começa com <b>github_pat_</b>).'});return out;}
+    const who=me.ok?(await me.json()).login:'';out.push({ok:true,t:`Token válido${who?`, da conta <b>${esc(who)}</b>`:''}.`});
+    const rp=await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,{headers:h,cache:'no-store'});
+    if(rp.status===404){out.push({ok:false,t:`O repositório <b>${esc(owner)}/${esc(repo)}</b> não foi encontrado com este token. Confira a grafia (o usuário é o nome que aparece na URL github.com/<b>usuário</b>/repositório) e, na configuração do token, se esse repositório está marcado em “Only select repositories”. Repositórios criados depois do token precisam ser adicionados a ele.`});return out;}
+    if(!rp.ok){out.push({ok:false,t:'Não foi possível consultar o repositório: '+await ghErr(rp)});return out;}
+    const info=await rp.json();out.push({ok:true,t:`Repositório <b>${esc(info.full_name)}</b> encontrado (${info.private?'privado':'público'}).`});
+    if(info.permissions&&info.permissions.push===false)out.push({ok:false,t:'O token consegue ler, mas não gravar. Edite o token e defina <b>Contents: Read and write</b>.'});
+    const br=await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(branch)}`,{headers:h,cache:'no-store'});
+    if(br.status===404)out.push({ok:false,t:info.size===0&&!info.default_branch?'O repositório está vazio. Envie primeiro o index.html pelo site do GitHub.':`A branch <b>${esc(branch)}</b> não existe. A branch principal deste repositório é <b>${esc(info.default_branch)}</b>; use esse nome no campo Branch.`});
+    else if(br.ok)out.push({ok:true,t:`Branch <b>${esc(branch)}</b> encontrada.`});
+    const dir=path.includes('/')?path.split('/').slice(0,-1).join('/'):'';
+    const ls=await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${dir.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(branch)}`,{headers:h,cache:'no-store'});
+    if(ls.ok){const files=await ls.json();const hasIdx=Array.isArray(files)&&files.some(f=>f.name.toLowerCase()==='index.html');
+      out.push({ok:hasIdx,t:hasIdx?`O index.html está na pasta ${dir?'<b>'+esc(dir)+'</b>':'raiz'}, junto de onde o arquivo de dados será gravado.`:`Não encontrei o index.html na pasta ${dir?'<b>'+esc(dir)+'</b>':'raiz'} do repositório. O arquivo de dados precisa ficar na mesma pasta dele.`});}
+    if(out.every(x=>x.ok))out.push({ok:true,t:'Tudo certo para publicar.'});
+  }catch(e){out.push({ok:false,t:'Sem conexão com o GitHub a partir deste navegador ('+esc(e.message)+').'});}
+  return out;
+}
 function pagesUrl(){const {owner,repo,path}=PUBCFG;if(!owner||!repo)return '';const dir=path.includes('/')?path.split('/').slice(0,-1).join('/')+'/':'';
   return (repo.toLowerCase()===owner.toLowerCase()+'.github.io'?`https://${repo}/`:`https://${owner}.github.io/${repo}/`)+dir;}
 async function fetchRemote(){
@@ -1449,20 +1473,31 @@ function renderPublish(){
   <div class="tools" style="margin-top:14px">
     <button class="btn" type="button" id="pSave">Salvar configuração</button>
     <button class="btn primary" type="button" id="pPub">Publicar dados agora</button>
+    <button class="btn" type="button" id="pTest">Testar conexão</button>
     <button class="btn" type="button" id="pDown">Baixar arquivo criptografado</button>
   </div>
+  <div id="pDiag"></div>
   <div class="note">${DB.pubAt?`Última publicação: ${new Date(DB.pubAt).toLocaleString('pt-BR')}. `:''}${DB.dirty?'<b style="color:var(--warn)">Há alterações ainda não publicadas.</b> ':''}${url?`Endereço do painel: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`:''}</div>
   <div class="note">Os dados são criptografados neste navegador (AES-256) antes do envio. No repositório fica apenas o arquivo cifrado; quem abrir o link precisa da senha dos dados. O token e a configuração ficam salvos só neste navegador e nunca são publicados.</div>`;
-  const read=()=>({owner:$('#pOwner').value.trim(),repo:$('#pRepo').value.trim(),branch:$('#pBranch').value.trim()||'main',path:$('#pPath').value.trim().replace(/^\/+/,'')||'dados.enc',token:$('#pToken').value.trim()});
+  const read=()=>{
+    let owner=$('#pOwner').value.trim(),repo=$('#pRepo').value.trim();
+    const fromUrl=v=>{const m=v.match(/github\.com\/([^\/\s]+)(?:\/([^\/\s#?]+))?/i);return m?[m[1],m[2]]:null;};
+    let u=fromUrl(owner)||fromUrl(repo);if(u){owner=u[0];if(u[1])repo=u[1];}
+    const pg=(owner+' '+repo).match(/([\w-]+)\.github\.io(?:\/([\w.-]+))?/i);if(pg&&!/github\.io$/i.test(repo)){owner=pg[1];if(pg[2])repo=pg[2];}
+    if(repo.includes('/')){const p=repo.split('/').filter(Boolean);owner=owner||p[0];repo=p[p.length-1];}
+    repo=repo.replace(/\.git$/i,'');owner=owner.replace(/^@/,'');
+    return {owner,repo,branch:$('#pBranch').value.trim()||'main',path:$('#pPath').value.trim().replace(/^\/+/,'')||'dados.enc',token:$('#pToken').value.trim()};};
   const getPass=()=>{const a=$('#pPass').value,b=$('#pPass2').value;
     if(a||b){if(a!==b)throw new Error('as senhas não conferem');if(a.length<10)throw new Error('use uma senha com pelo menos 10 caracteres');return a;}
     if(PUB.pass)return PUB.pass;throw new Error('defina a senha dos dados');};
   $('#pSave').onclick=async()=>{PUBCFG=read();await IDB.set('pubcfg',PUBCFG);renderPublish();renderPubStatus();toast('Configuração salva neste navegador.');};
+  $('#pTest').onclick=async()=>{PUBCFG=read();$('#pOwner').value=PUBCFG.owner;$('#pRepo').value=PUBCFG.repo;await IDB.set('pubcfg',PUBCFG);busy(true,'Testando conexão com o GitHub…');const r=await ghDiagnose();busy(false);
+    $('#pDiag').innerHTML=`<ul class="ins" style="margin-top:12px">${r.map(x=>`<li><span class="ic ${x.ok?'up':'dn'}">${x.ok?'✓':'!'}</span><span>${x.t}</span></li>`).join('')}</ul>`;};
   $('#pDown').onclick=async()=>{try{const pass=getPass();busy(true,'Criptografando…');const bytes=await encryptPayload(buildPayload(),pass);busy(false);PUB.pass=pass;
       const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'}));a.download=read().path.split('/').pop();a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
       toast('Arquivo gerado. Envie-o para a mesma pasta do index.html no repositório.');}catch(e){busy(false);toast('Não foi possível gerar: '+e.message,6000);}};
   $('#pPub').onclick=async()=>{
-    try{PUBCFG=read();if(!PUBCFG.owner||!PUBCFG.repo||!PUBCFG.token)throw new Error('preencha usuário, repositório e token');
+    try{PUBCFG=read();$('#pOwner').value=PUBCFG.owner;$('#pRepo').value=PUBCFG.repo;if(!PUBCFG.owner||!PUBCFG.repo||!PUBCFG.token)throw new Error('preencha usuário, repositório e token');
       const pass=getPass();await IDB.set('pubcfg',PUBCFG);
       busy(true,'Criptografando os dados…');const bytes=await encryptPayload(buildPayload(),pass);
       busy(true,`Enviando ${(bytes.length/1048576).toLocaleString('pt-BR',{maximumFractionDigits:1})} MB ao GitHub…`);await ghPublish(bytes);
