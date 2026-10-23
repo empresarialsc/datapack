@@ -335,6 +335,10 @@ input[type=password],.pubgrid input{background:var(--surface-2);border:1px solid
 .modal-c h2{margin-bottom:4px}
 .modal-c input[type=password]{width:100%;margin-top:14px}
 </style>
+<style>
+table.mx tr.pct td{color:var(--ink-3);font-style:italic;font-size:12px}
+table.mx tr.pct td:first-child{padding-left:22px}
+</style>
 
 </head>
 <body>
@@ -364,6 +368,7 @@ input[type=password],.pubgrid input{background:var(--surface-2);border:1px solid
   <div class="companies" id="coChips"></div>
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-v="caixa">Fluxo de caixa</button>
+    <button role="tab" aria-selected="false" data-v="dre">DRE contábil</button>
     <button role="tab" aria-selected="false" data-v="titulos">Títulos em aberto</button>
     <button role="tab" aria-selected="false" data-v="fat">Faturamento</button>
     <button role="tab" aria-selected="false" data-v="plano">Plano de contas</button>
@@ -418,6 +423,26 @@ input[type=password],.pubgrid input{background:var(--surface-2);border:1px solid
     <div class="grid g2"><div class="panel" id="anMoM"></div><div class="panel" id="anYTD"></div></div>
   </section>
 
+  <!-- DRE -->
+  <section class="view" id="v-dre">
+    <div class="section-h"><div><h2>Resultado contábil</h2><div class="sub" id="drSub"></div></div></div>
+    <div class="panel ledger" id="drKpi"></div>
+    <div class="section-h">
+      <div><h2>Evolução da receita e do lucro líquido</h2><div class="sub">Receita líquida e lucro líquido por mês de competência</div></div>
+      <div class="tools"><span class="sub">Segmentar por</span><div class="seg" id="drSeg"><button type="button" aria-pressed="true" data-s="none">Total do grupo</button><button type="button" aria-pressed="false" data-s="emp">Empresa</button></div></div>
+    </div>
+    <div class="panel"><div class="panel-b" style="padding-top:16px"><div class="chart tall"><canvas id="chDre"></canvas></div></div></div>
+    <div class="section-h">
+      <div><h2>Demonstração do resultado do exercício</h2><div class="sub">Grupo › Classificação › Subclassificação › Conta contábil. A coluna % RL mostra a análise vertical sobre a receita líquida</div></div>
+      <div class="tools"><input type="search" id="drSearch" placeholder="Filtrar conta ou classificação"><button class="btn" type="button" id="drExpand">Expandir tudo</button><button class="btn" type="button" id="drCsv">Exportar CSV</button></div>
+    </div>
+    <div id="drBanner"></div>
+    <div class="tablewrap" id="drWrap"></div>
+    <div class="section-h"><div><h2>Análise de performance</h2><div class="sub" id="drAnSub"></div></div></div>
+    <div class="grid g2"><div class="panel" id="drMoM"></div><div class="panel" id="drYTD"></div></div>
+    <div class="panel" style="margin-top:16px" id="drCo"></div>
+  </section>
+
   <!-- TÍTULOS -->
   <section class="view" id="v-titulos">
     <div class="section-h">
@@ -461,7 +486,7 @@ input[type=password],.pubgrid input{background:var(--surface-2);border:1px solid
   <!-- PLANO DE CONTAS -->
   <section class="view" id="v-plano">
     <div class="section-h">
-      <div><h2>Plano de contas do fluxo de caixa</h2><div class="sub" id="plSub">Defina o grupo e a classificação de cada categoria. As alterações valem imediatamente para a demonstração do fluxo de caixa</div></div>
+      <div><div class="seg" id="plMode" style="margin-bottom:10px"><button type="button" aria-pressed="true" data-m="fc">Fluxo de caixa</button><button type="button" aria-pressed="false" data-m="dre">DRE contábil</button></div><h2 id="plTitle">Plano de contas do fluxo de caixa</h2><div class="sub" id="plSub">Defina o grupo e a classificação de cada categoria. As alterações valem imediatamente para a demonstração do fluxo de caixa</div></div>
       <div class="tools">
         <input type="search" id="plSearch" placeholder="Buscar categoria ou classificação">
         <select id="plShow">
@@ -560,10 +585,10 @@ const isTransfer = r => {const c=classify(r.cat);return norm(c.classif)==='trans
 
 /* ======================= estado ======================= */
 const PRESET_MAP={'147':'EMPRESARIAL PROCESSOS DOCUMENTAIS','1':'EMPRESARIAL BPO FINANCEIRO','97':'EMPRESARIAL ASSESSORIA CONTABIL'};
-const blankDB = () => ({cash:[],titles:[],openings:{},splits:{},models:{},files:[],empMap:{...PRESET_MAP},plan:defaultPlanMap(),logo:null,theme:'auto'});
+const blankDB = () => ({cash:[],titles:[],gl:[],drePlan:null,openings:{},splits:{},models:{},files:[],empMap:{...PRESET_MAP},plan:defaultPlanMap(),logo:null,theme:'auto'});
 let DB = blankDB();
 const UI = {emps:null, anos:null, meses:null, contas:null, base:todayISO(), mxDim:'cat', mxOpen:new Set(), mxAll:false, mxSearch:'',
-  ag:{R:{bucket:null,q:'',open:new Set()},P:{bucket:null,q:'',open:new Set()}}, showMatched:false, prDate:'prev', prOver:false, ftFut:false, view:'caixa', plShow:'mov', plQ:''};
+  ag:{R:{bucket:null,q:'',open:new Set()},P:{bucket:null,q:'',open:new Set()}}, showMatched:false, prDate:'prev', dreSeg:'none', dreQ:'', dreOpen:new Set(), dreAll:false, plMode:'fc', prOver:false, ftFut:false, view:'caixa', plShow:'mov', plQ:''};
 const charts={};
 
 /* ======================= leitura de arquivos ======================= */
@@ -610,6 +635,8 @@ async function readXlsx(buf){
 function kindOf(rows,name){
   const h=rows.length?Object.keys(rows[0]):[];const has=k=>h.includes(k);
   if(has('Minha Empresa (CNPJ)'))return 'titulos';
+  if(has('clasc')&&has('valdeb')&&has('valcre'))return 'razao';
+  if(has('Classificação A')&&has('Conta'))return 'planodre';
   if(has('Categoria')&&has('Grupo')&&(has('Classificação')||has('Classificacao')))return 'plano';
   if(has('Saldo Previsto (R$)')||(has('Conta Corrente')&&has('Valor (R$)'))){
     const filled=rows.filter(r=>(r['Data']||'').trim());
@@ -627,7 +654,7 @@ async function handleFiles(list){
       const rows=/\.xlsx$/i.test(f.name)?await readXlsx(buf):parseCSV(await readText(buf));
       parsed.push({f,rows,kind:kindOf(rows,f.name)});}catch(e){console.error(e);msgs.push(`${f.name}: não foi possível ler (${e.message})`);}
   }
-  const ord={plano:0,titulos:1,caixa:2,si:3};
+  const ord={plano:0,planodre:0,titulos:1,caixa:2,si:3,razao:4};
   parsed.sort((a,b)=>(ord[a.kind]??9)-(ord[b.kind]??9));
   for(const p of parsed){
     busy(true,`Processando ${p.f.name}…`);await new Promise(r=>setTimeout(r,20));
@@ -636,6 +663,8 @@ async function handleFiles(list){
       else if(p.kind==='caixa')msgs.push(loadCaixa(p.f.name,p.rows));
       else if(p.kind==='si')msgs.push(loadSaldoInicial(p.f.name,p.rows.filter(r=>(r['Data']||'').trim())));
       else if(p.kind==='plano')msgs.push(loadPlano(p.f.name,p.rows));
+      else if(p.kind==='planodre')msgs.push(loadPlanoDre(p.f.name,p.rows));
+      else if(p.kind==='razao')msgs.push(loadRazao(p.f.name,p.rows));
       else msgs.push(`${p.f.name}: layout não reconhecido`);
     }catch(e){console.error(e);msgs.push(`${p.f.name}: erro ao processar (${e.message})`);}
   }
@@ -740,6 +769,8 @@ function deleteFile(name,kind){
   if(kind==='caixa'){DB.cash=DB.cash.filter(r=>r.src!==name);for(const f in DB.openings)DB.openings[f]=DB.openings[f].filter(o=>o.src!==name);}
   else if(kind==='titulos')DB.titles=DB.titles.filter(t=>t.src!==name);
   else if(kind==='si'){for(const f in DB.splits)if(DB.splits[f].src===name)delete DB.splits[f];for(const f in DB.openings)DB.openings[f]=DB.openings[f].filter(o=>o.src!==name);}
+  else if(kind==='razao')DB.gl=(DB.gl||[]).filter(r=>r.src!==name);
+  else if(kind==='planodre'){const def=defaultDreMap();for(const k in DB.drePlan)if(DB.drePlan[k].file===name){if(def[k])DB.drePlan[k]=def[k];else delete DB.drePlan[k];}}
   else if(kind==='plano'){const def=defaultPlanMap();for(const k in DB.plan)if(DB.plan[k].file===name){if(def[k])DB.plan[k]=def[k];else delete DB.plan[k];}}
   DB.files=DB.files.filter(f=>!(f.name===name&&f.kind===kind));
 }
@@ -753,6 +784,7 @@ function migrate(){
   if(DB.titles.length)supersedeTitles();
   for(const fid in DB.splits)if(!DB.splits[fid].src){const f=DB.files.find(f=>f.kind==='si'&&f.fid===fid);DB.splits[fid].src=f?f.name:'';}
   if(!DB.plan||!Object.keys(DB.plan).length)DB.plan=defaultPlanMap();
+  DB.gl=DB.gl||[];if(!DB.drePlan||!Object.keys(DB.drePlan).length)DB.drePlan=defaultDreMap();
   DB.splits=DB.splits||{};
 }
 
@@ -785,7 +817,7 @@ document.addEventListener('click',()=>document.querySelectorAll('.ms.open').forE
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.ms.open').forEach(x=>x.classList.remove('open'));});
 
 /* ======================= filtros ======================= */
-function allEmps(){return [...new Set([...DB.cash.map(r=>r.emp),...DB.titles.map(t=>t.emp)])].sort();}
+function allEmps(){return [...new Set([...DB.cash.map(r=>r.emp),...DB.titles.map(t=>t.emp),...(DB.gl||[]).map(r=>r.emp)])].sort();}
 function selEmps(){return UI.emps||new Set(allEmps());}
 function accountOptions(){
   const emps=selEmps();const set=new Map();
@@ -804,7 +836,7 @@ function buildFilters(){
   const emps=allEmps();const sel=selEmps();const all=emps.every(e=>sel.has(e));
   $('#coChips').innerHTML=emps.length?`<span class="lbl">Empresas</span><button type="button" class="chip all" aria-pressed="${all}" data-e="*">Consolidado</button>`+
     emps.map(e=>`<button type="button" class="chip" aria-pressed="${sel.has(e)&&!all}" data-e="${esc(e)}" title="${esc(e)}">${esc(coShort(e))}</button>`).join(''):'';
-  const ds=DB.cash.map(r=>r.d).concat(DB.titles.filter(t=>t.emis&&t.emis<=addDays(UI.base,400)).map(t=>t.emis));
+  const ds=DB.cash.map(r=>r.d).concat((DB.gl||[]).map(r=>r.d)).concat(DB.titles.filter(t=>t.emis&&t.emis<=addDays(UI.base,400)).map(t=>t.emis));
   const anos=[...new Set(ds.map(d=>d.slice(0,4)))].filter(a=>a>='2000').sort();
   if(!UI._init&&anos.length){const cy=UI.base.slice(0,4);UI.anos=new Set([anos.includes(cy)?cy:anos[anos.length-1]]);UI._init=true;}
   if(UI.anos){UI.anos=new Set([...UI.anos].filter(a=>anos.includes(a)));if(!UI.anos.size)UI.anos=null;}
@@ -1165,6 +1197,262 @@ function renderCoCompare(rows,M,YA,YB,lA,hasYB){
   $('#anCo').innerHTML=`<div class="panel-h"><div><h3>Comparativo entre empresas</h3><div class="sub">Acumulado ${lA}; clientes pagantes no mês de referência</div></div></div><div class="panel-b"><div class="tablewrap" style="max-height:none"><table class="cp"><thead><tr><th>Empresa</th><th style="text-align:left">Modelo de receita</th><th>Recebimentos</th><th>Var. ano anterior</th><th>Geração operacional</th><th>Margem op.</th><th>Pessoal / receb.</th><th>Clientes pagantes</th><th>Top 5 clientes</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
+
+/* ======================= DRE CONTÁBIL ======================= */
+const DEFAULT_DRE = [["32201001", "331", "SALÁRIOS E ORDENADOS", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201002", "332", "PRÓ-LABORE", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201003", "333", "PRÊMIOS E GRATIFICAÇÕES", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201004", "334", "13º SALÁRIO", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201005", "335", "FÉRIAS", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201006", "336", "INSS", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201007", "337", "FGTS", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201008", "338", "INDENIZAÇÕES E AVISO PRÉVIO", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201009", "339", "ASSISTÊNCIA MÉDICA E SOCIAL", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201010", "492", "VALE TRANSPORTE", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201012", "521", "ALIMENTAÇÃO/REFEIÇÃO", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32201013", "41619", "DESENVOLVIMENTO DE PESSOAL", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32202001", "341", "ALUGUÉIS DE IMÓVEIS", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32202002", "342", "ALUGUÉIS DE MÁQUINAS E EQUIPAMENTOS", "2. Custos e Despesas", "Aluguéis e Arrendamentos", "Aluguéis e Arrendamentos"], ["32202003", "343", "ARRENDAMENTO DE IMÓVEIS", "2. Custos e Despesas", "Aluguéis e Arrendamentos", "Aluguéis e Arrendamentos"], ["32202004", "344", "ARRENDAMENTO MERCANTIL (LEASING)", "2. Custos e Despesas", "Aluguéis e Arrendamentos", "Aluguéis e Arrendamentos"], ["32203001", "354", "ENERGIA ELÉTRICA", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203002", "355", "ÁGUA E ESGOTO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203003", "356", "TELEFONE E INTERNET", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203004", "357", "DESPESAS POSTAIS E TELEGRÁFICAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203005", "358", "SEGUROS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203006", "359", "MATERIAL DE ESCRITÓRIO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203007", "360", "MATERIAL DE HIGIENE E LIMPEZA", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203008", "361", "HONORÁRIOS CONTÁBEIS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203009", "362", "SERVIÇOS PRESTADOS POR TERCEIROS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203010", "363", "DEPRECIAÇÕES E AMORTIZAÇÕES", "4. Depreciações e Amorizações", "Despesas Gerais", "Despesas Gerais"], ["32203011", "364", "REPRODUÇÕES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203012", "365", "DESPESAS LEGAIS E JUDICIAIS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203013", "366", "LIVROS, JORNAIS E REVISTAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203014", "493", "MULTA DE TRÂNSITO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203015", "41613", "LIMPEZA E CONSERVAÇÃO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203016", "41614", "MANUTENÇÃO DE SISTEMAS", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203017", "41616", "ACESSO A INTERNET E SITE", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203018", "41620", "UNIFORMES E EQUIPAMENTOS DE SEGURANÇA", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203019", "41622", "FRETES/CARRETOS/MOTOBOY", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203020", "41624", "REFEIÇÕES E LANCHES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203021", "41662", "MATERIAL E REPARO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203121", "707", "LICENÇA SOFTWARE", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203122", "708", "SISTEMA FINANCEIRO", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203123", "709", "PROPAGANDA E PUBLICIDADE", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203124", "710", "EVENTOS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203022", "321", "MANUTENÇÃO E REPARO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203023", "41672", "SERVIÇOS DE LIMPEZA E CONSERVAÇÃO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203024", "41691", "MANUTENÇÃO DE EMAIL", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203025", "41505", "CARTÓRIOS E CERTIDÕES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203026", "41507", "CONDUÇÃO URBANA", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203027", "533", "SERVIÇOS DE LEGALIZAÇÃO, CONSTITUIÇÃO E CERTIDÕES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203028", "41598", "CONDOMÍNIO", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203029", "41741", "SERVIÇOS PRESTADOS POR TERCEIROS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203030", "41661", "MATERIAL DE CONSUMO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203031", "41890", "ESTACIONAMENTO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203032", "560", "BENS DE PEQUENO VALOR", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203033", "561", "PROPAGANDA E PUBLICIDADE", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203034", "562", "ROYALTIES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203034", "41948", "ROYALTIES/FRANQUIA", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203035", "563", "TAXA FRANCHISING", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203036", "564", "RECRUTAMENTO/SELEÇÃO", "2. Custos e Despesas", "Despesas com Pessoal", "Despesas com Pessoal"], ["32203037", "566", "MARKETING", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203038", "567", "DOAÇÕES E BRINDES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203039", "568", "LOCAÇÃO DE MÁQUINAS E EQUIPAMENTOS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203040", "800", "SERVIÇOS DE INFORMÁTICA - TI", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203041", "801", "SISTEMA FINANCEIRO", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203042", "802", "SISTEMAS GESTÃO CONTÁBIL", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203043", "534", "EVENTOS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203044", "570", "SISTEMA GESTÃO FISCAL/LEGALIZAÇÃO", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203045", "571", "SISTEMAS CONTABILIDADE", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203046", "750", "LICENÇAS E ASSINATURAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203047", "701", "CURSOS E TREINAMENTOS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203048", "725", "CONSELHO DE CLASSE", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203049", "726", "CONSULTORIAS DIVERSAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203050", "727", "GESTÃO COMERCIAL", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203051", "728", "VIAGENS E ESTADIAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203999", "41939", "OUTRAS DESPESAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32204001", "368", "JUROS PASSIVOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204002", "369", "VARIAÇÕES MONETÁRIAS PASSIVAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204003", "370", "VARIAÇÕES CAMBIAIS PASSIVAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204004", "371", "DESCONTO CONCEDIDOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204005", "372", "JUROS DE MORA", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204006", "373", "JUROS SOBRE CAPITAL PRÓPRIO", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204007", "374", "JUROS E COMISSÕES BANCÁRIAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204008", "375", "JUROS SOBRE EMPRÉSTIMOS E FINANCIAMENTOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204009", "41579", "MULTAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204010", "41583", "DESPESAS BANCÁRIAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204011", "41584", "IOF", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204111", "3866", "IOF", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204210", "3926", "TARIFAS BANCÁRIAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204110", "41508", "DESPESAS BANCÁRIAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204211", "41509", "IOF", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204112", "41510", "JUROS BANCÁRIOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32205109", "41512", "IRRF S/APLICAÇÃO FINANCEIRA", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["41401101", "41574", "RECUPERAÇÃO DE DESPESAS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204018", "41630", "JUROS S/ PARCELAMENTOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204012", "41585", "JUROS BANCÁRIOS", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204013", "41586", "TARIFA DE CARTÃO DE CRÉDITO", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204014", "41742", "SEGURO PRESTAMISTA", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204015", "352", "MULTAS DE MORA", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204016", "602", "ENCARGOS S/ PARCELAMENTO", "3. Resultado Financeiro", "Despesas Financeiras", "Despesas Financeiras"], ["32204017", "700", "PENALIDADES POR FALHAS INTERNAS", "3. Resultado Financeiro", "Despesas Gerais", "Despesas Gerais"], ["32205003", "348", "IPTU", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205004", "349", "IPVA", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205005", "350", "TAXAS DIVERSAS", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205006", "351", "CPMF", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205007", "41954", "PERDA S/ APLICAÇÃO FINANCEIRA", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205008", "41596", "ISSQN", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32205009", "41597", "IRRF S/APLICAÇÃO FINANCEIRA", "2. Custos e Despesas", "Despesas Tributárias", "Despesas Tributárias"], ["32301001", "377", "PROVISÕES P/ PERDAS E A JUSTES DE ATIVOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Outras Despesas Operacionais"], ["32301002", "378", "EQUIVALÊNCIA  PATRIMONIAL", "5.Equivalência Patrimonial", "Outros Resultados Operacionais", "Outras Despesas Operacionais"], ["32301003", "379", "AMORTIZAÇÃO DE ÁGIO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Outras Despesas Operacionais"], ["32401001", "384", "PERDAS NA ALIENAÇÃO EM PAR. EM COLIGADAS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultados Negativos Na Alien. De Invest"], ["32402001", "386", "PERDAS NA ALIENAÇÃO DE IMÓVEIS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado Negativo na Alienação do Imob."], ["32402002", "387", "PERDAS NA ALIENAÇÃO DE MÓVEIS E UTENS.", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado Negativo na Alienação do Imob."], ["32402003", "388", "PERDAS NA ALIENAÇÃO DE MAQ. EQUIPAMENTOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado Negativo na Alienação do Imob."], ["32402004", "389", "PERDAS NA ALIENAÇÃO DE VEÍCULOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado Negativo na Alienação do Imob."], ["32403001", "391", "PERDAS EM SINISTROS COM IMOBILIZADO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado Negativo de Sinistro Com Imob."], ["32404001", "393", "BAIXAS DE INVESTIMENTOS PERMANENTES", "2. Custos e Despesas", "Outros Resultados Operacionais", "Outras Baixas do Ativo Permanente"], ["32404002", "394", "BAIXAS DE IMOBILIZADO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Outras Baixas do Ativo Permanente"], ["32404003", "395", "BAIXAS DE ATIVO DIFERIDO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Outras Baixas do Ativo Permanente"], ["32405001", "397", "CONTROLADAS E COLIGADAS - EQUIV. PATRIM.", "2. Custos e Despesas", "Outros Resultados Operacionais", "Provisões para Perdas Permanente"], ["32405002", "398", "CONTROLAS E COLIGADAS - CUSTO CORRIGIDO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Provisões para Perdas Permanente"], ["32405003", "399", "OUTRAS PARTICIPAÇÕES SOCIETÁRIAS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Provisões para Perdas Permanente"], ["32406001", "401", "PERDAS POR FALTA NO INVENTÁRIO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Perdas"], ["32406002", "507", "PERDA DE CRÉDITO DE ICMS S/ IMOBILIZADO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Perdas"], ["32406003", "565", "PERDAS COM CLIENTES", "2. Custos e Despesas", "Outros Resultados Operacionais", "Perdas"], ["41102001", "411", "SERVIÇOS PRESTADOS", "1. Receita Líquida", "Receita Bruta de Vendas e Serviços", "Receita de Prestação de Serviços"], ["41102002", "412", "SERVIÇOS PRESTADO MERCADO EXTERNO", "1. Receita Líquida", "Receita Bruta de Vendas e Serviços", "Receita de Prestação de Serviços"], ["41203003", "427", "(-) ISS", "1. Receita Líquida", "(-) Deduções Da Receita Bruta", "(-) Impostos sobre Vendas e Serviços"], ["41203008", "480", "(-) SIMPLES NACIONAL", "1. Receita Líquida", "(-) Deduções Da Receita Bruta", "(-) Impostos sobre Vendas e Serviços"], ["41203010", "484", "(-) REFIS", "1. Receita Líquida", "(-) Deduções Da Receita Bruta", "(-) Impostos sobre Vendas e Serviços"], ["41203012", "509", "(-) INSS RECEITA BRUTA", "1. Receita Líquida", "(-) Deduções Da Receita Bruta", "(-) Impostos sobre Vendas e Serviços"], ["41301001", "432", "JUROS DE APLICAÇÕES", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301002", "433", "JUROS", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301003", "434", "DESCONTOS FINANCEIROS OBTIDOS", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301004", "435", "CORREÇÃO MONETÁRIA ATIVA", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301005", "475", "MULTA", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301006", "41587", "RENDIMENTO DE APLICAÇÃO FINANCEIRA", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41301007", "605", "RECÁLCULOS", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["41302001", "437", "VARIAÇÕES MONETÁRIAS ATIVAS", "3. Resultado Financeiro", "Receitas Financeiras", "Variações Ativas"], ["41302002", "438", "VARIAÇÕES CAMBIAIS ATIVAS", "3. Resultado Financeiro", "Receitas Financeiras", "Variações Ativas"], ["41401001", "449", "RECUPERAÇÃO DE DESPESAS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Recuperação de Despesas"], ["41501001", "444", "ALUGUÉIS E ARRENDAMENTOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Receitas Diversas"], ["41501002", "445", "VENDAS ACESSÓRIAS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Receitas Diversas"], ["41501003", "446", "RECEITA DE EQUIVALÊNCIA PATRIMONIAL", "2. Custos e Despesas", "Outros Resultados Operacionais", "Receitas Diversas"], ["41501004", "447", "DIVIDENDOS E LUCROS RECEBIDOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Receitas Diversas"], ["41501005", "448", "AMORTIZAÇÃO DE DESÁGIO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Receitas Diversas"], ["41601001", "452", "LUCROS NA ALIENAÇÃO DE PART. EM COLIGADA", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultados Posit. na Alien. de Investim"], ["41602001", "454", "LUCROS NA ALIENAÇÃO DE IMÓVEIS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Lucros na Alienação de Imobilizado"], ["41602002", "455", "LUCROS NA ALIENAÇÃO DE MÓVEIS E UTENS.", "2. Custos e Despesas", "Outros Resultados Operacionais", "Lucros na Alienação de Imobilizado"], ["41602003", "456", "LUCROS NA ALIEN. DE MÁQ. EQUIP. FERRAMEN", "2. Custos e Despesas", "Outros Resultados Operacionais", "Lucros na Alienação de Imobilizado"], ["41602004", "457", "LUCROS NA ALIENAÇÃO DE VEÍCULOS", "2. Custos e Despesas", "Outros Resultados Operacionais", "Lucros na Alienação de Imobilizado"], ["41603002", "459", "SINISTROS COM IMOBILIZADO", "2. Custos e Despesas", "Outros Resultados Operacionais", "Resultado de Sinistros com Imobilizado"], ["32203055", "4133", "PERDAS C/ CLIENTES", "2. Custos e Despesas", "Outros Resultados Operacionais", "Perdas"], ["32406004", "42111", "PERDAS ESTIMADAS DE CREDITO DE LIQUIDEZ DUVIDOSA", "2. Custos e Despesas", "Outros Resultados Operacionais", "Perdas"], ["41301006", "41519", "RENDIMENTO APLICAÇÃO FINANCEIRA", "3. Resultado Financeiro", "Receitas Financeiras", "Receitas Financeiras Gerais"], ["32203020", "3458", "CONDOMÍNIO", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203027", "3560", "FEIRAS, EVENTOS E CONFRATERNIZAÇÕES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203034", "3688", "MATERIAL DE CONSUMO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203037", "3761", "REFEIÇÕES E LANCHES", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203039", "3790", "UNIFORMES E EQUIPAMENTOS DE PROTEÇÃO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203046", "3398", "ACESSO A INTERNET", "2. Custos e Despesas", "Despesas Imobiliárias e Infra", "Despesas Imobiliárias e Infra"], ["32203059", "41833", "MANUTENÇÃO DE SISTEMAS", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203061", "42170", "SERVIÇOS DE LIMPEZA E CONSERVAÇÃO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203062", "42171", "MANUTENÇÃO E REPARO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203063", "42172", "LICENÇAS E ASSINATURAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203064", "42173", "SERVIÇOS DE INFORMÁTICA - TI", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203025", "41706", "SERVIÇOS DE LIMPEZA E CONSERVAÇÃO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203026", "41707", "MATERIAL DE CONSUMO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203027", "41708", "LOCAÇÃO DE MÁQUINAS E EQUIPAMENTOS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203028", "41709", "LICENÇAS E ASSINATURAS", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203029", "41710", "SERVIÇOS DE INFORMÁTICA - TI", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"], ["32203030", "41711", "SISTEMA FINANCEIRO", "2. Custos e Despesas", "Despesas com Softwares", "Despesas com Softwares"], ["32203031", "41712", "MANUTENÇÃO E REPARO", "2. Custos e Despesas", "Despesas Gerais", "Despesas Gerais"]];
+const DRE_UNC='9. Não classificado';
+function defaultDreMap(){const m={};for(const [conta,codic,nome,A,C,B] of DEFAULT_DRE){if(!m[conta])m[conta]={conta,codic,nome,A,C,B,src:'padrao'};}return m;}
+let DRE_CODIC=null,DRE_SIG='';
+function dreClass(r){
+  const p=DB.drePlan||{};
+  if(p[r.clasc]&&p[r.clasc].A)return p[r.clasc];
+  // o código reduzido (codic) não é único entre empresas no Domínio; a classificação usa só a conta (clasc)
+  return {A:DRE_UNC,C:'Não classificado',B:''};
+}
+function excelDate(v){const s=String(v||'').trim();if(/^\d{5}(\.\d+)?$/.test(s)){const d=new Date(Date.UTC(1899,11,30)+Math.floor(+s)*864e5);return d.toISOString().slice(0,10);}return brDate(s);}
+function extractCp(h){const m=String(h||'').match(/\bNF\.?\s*(?:N[ºO°]\s*)?\d+\s+(?:(?:DE|-)\s+)?(.+?)\s*$/i);if(!m)return '';return m[1].replace(/\s+\d{11,14}\s*$/,'').replace(/\s+/g,' ').trim().toUpperCase();}
+const cleanHist=h=>String(h||'').toUpperCase().replace(/\d+[\/\-.]?\d*/g,'').replace(/\b(VR|VALOR|REF|CONF|NF|REFERENTE|MÊS|MES)\b\.?/g,'').replace(/[^\wÀ-Ú ]+/g,' ').replace(/\s+/g,' ').trim().slice(0,48)||'(sem histórico)';
+function loadRazao(name,rows){
+  const m=name.match(/_(\d+)_Raz/i)||name.match(/^(\d+)_/)||name.match(/_(\d+)_/);
+  const fid=m?m[1]:String(rows.find(r=>r.codi_emp)?.codi_emp||name);
+  let emp=DB.empMap[fid];
+  if(!emp){const nm=String(rows.find(r=>r.descricao_scp)?.descricao_scp||'').trim();emp=allEmps().find(e=>norm(nm).startsWith(norm(e)))||nm||`Empresa ${fid}`;DB.empMap[fid]=emp;}
+  const recs=[];let mn='9999',mx='0000';
+  for(const r of rows){
+    if(String(r.tipo).trim()!=='2')continue;
+    const d=excelDate(r.datalan);if(!d)continue;
+    const h=String(r.historico||'').trim();
+    if(String(r.origem).trim()==='9000'||/FACE ENCERRAMEN/i.test(h))continue; // lançamentos de encerramento do exercício
+    const v=parseNum(r.valcre)-parseNum(r.valdeb);if(Math.abs(v)<0.000001)continue;
+    if(d<mn)mn=d;if(d>mx)mx=d;
+    const clasc=String(r.clasc||'').trim(),codic=String(r.codic||'').trim();
+    recs.push({emp,fid,src:name,d,clasc,codic,nomec:String(r.nomec||'').trim(),v:+v.toFixed(2),h:h.slice(0,110),cp:extractCp(h)});
+  }
+  DB.gl=(DB.gl||[]).filter(r=>!(r.fid===fid&&r.d>=mn&&r.d<=mx)).concat(recs);
+  DB.files=DB.files.filter(f=>!(f.kind==='razao'&&f.name===name));
+  DB.files.push({kind:'razao',name,fid,min:mn,max:mx,at:new Date().toISOString()});
+  const unc=new Set(recs.filter(r=>dreClass(r).A===DRE_UNC).map(r=>r.clasc)).size;
+  return `${coShort(emp)}: razão com ${fInt.format(recs.length)} lançamentos (${fmtD(mn)} a ${fmtD(mx)})${unc?`, ${unc} conta(s) sem classificação`:''}`;
+}
+function loadPlanoDre(name,rows){
+  let n=0;DB.drePlan=DB.drePlan||defaultDreMap();
+  for(const r of rows){const conta=String(r['Conta']||'').trim(),A=String(r['Classificação A']||'').trim();if(!conta||!A)continue;
+    DB.drePlan[conta]={conta,codic:String(r['Código Conta']||'').trim(),nome:String(r['DESCRIÇÃO CONTA']||r['Descrição Conta']||'').trim(),A,C:String(r['Classificação']||'').trim(),B:String(r['Classificação B']||'').trim(),src:'importado',file:name};n++;}
+  DB.files=DB.files.filter(f=>!(f.kind==='planodre'&&f.name===name));
+  DB.files.push({kind:'planodre',name,rows:n,at:new Date().toISOString()});
+  return `Plano de contas da DRE: ${fInt.format(n)} contas classificadas`;
+}
+const gNum=A=>parseInt(String(A).trim())||9;
+const DRE_POS={1:1,2:2,4:3,3:4,5:5};
+function dreRows(){
+  const emps=selEmps();const rows=(DB.gl||[]).filter(r=>emps.has(r.emp));
+  for(const r of rows){const c=dreClass(r);r._A=c.A;r._C=c.C||c.A;r._B=c.B||'';r._m=ym(r.d);r._g=gNum(c.A);}
+  return rows;
+}
+function dTots(rows,set){
+  const o={rb:0,ded:0,rl:0,cd:0,da:0,fin:0,eq:0,out:0,pes:0,n:0};
+  for(const r of rows){if(!set.has(r._m))continue;o.n++;const g=r._g;
+    if(g===1){o.rl+=r.v;if(/^\(-\)|dedu/i.test(r._C))o.ded+=r.v;else o.rb+=r.v;}
+    else if(g===2){o.cd+=r.v;if(norm(r._C)==='despesascompessoal')o.pes+=r.v;}
+    else if(g===4)o.da+=r.v;else if(g===3)o.fin+=r.v;else if(g===5)o.eq+=r.v;else o.out+=r.v;}
+  o.ebitda=o.rl+o.cd;o.ebit=o.ebitda+o.da;o.ll=o.ebit+o.fin+o.eq+o.out;
+  const q=x=>Math.abs(o.rl)>0.005?x/o.rl:null;o.mEbitda=q(o.ebitda);o.mLL=q(o.ll);o.pPes=q(-o.pes);return o;
+}
+function dreCtx(){
+  const rows=dreRows();if(!rows.length)return null;
+  let mn=rows[0].d,mx=rows[0].d;for(const r of rows){if(r.d<mn)mn=r.d;if(r.d>mx)mx=r.d;}
+  const months=selMonths(mn,mx);return {rows,mn,mx,months};
+}
+function coColors(){const pal=PAL();const es=allEmps();const m={};es.forEach((e,i)=>m[e]=pal[i%pal.length]);return m;}
+function renderDre(){
+  const ctx=dreCtx();
+  const clear=msg=>{$('#drKpi').innerHTML=`<div class="cell"><div class="k">${msg}</div></div>`;['#drWrap','#drMoM','#drYTD','#drCo','#drBanner'].forEach(x=>$(x).innerHTML='');$('#drSub').textContent='';if(charts.dr){charts.dr.destroy();charts.dr=null;}};
+  if(!ctx)return clear('Carregue o razão contábil das empresas (arquivos “_Razão_” exportados do Domínio) para montar a DRE.');
+  const {rows,months,mx}=ctx;if(!months.length)return clear('Nenhum lançamento contábil no ano e mês selecionados.');
+  const ms=new Set(months);const T=dTots(rows,ms);const emps=selEmps();
+  $('#drSub').textContent=`${periodLabel(months)} | ${emps.size===allEmps().length?'Consolidado':[...emps].map(coShort).join(', ')} | regime de competência, sem os lançamentos de encerramento do exercício${UI.contas?' | o filtro de conta corrente não se aplica à DRE':''}`;
+  const byEmp={};for(const e of emps)byEmp[e]=dTots(rows.filter(r=>r.emp===e),ms);
+  const cc=coColors();
+  const empTip=(title,fn,fmt)=>()=>`<h4>${title}</h4><table>${Object.keys(byEmp).sort().filter(e=>byEmp[e].n).map(e=>`<tr><td><span class="sw" style="background:${cc[e]}"></span>${esc(coShort(e))}</td><td class="r num">${fmt(byEmp[e])}</td></tr>`).join('')}<tr class="tot"><td>Total</td><td class="r num">${fmt(T)}</td></tr></table>`;
+  $('#drKpi').innerHTML=`
+   <div class="cell hero" id="dkLL" tabindex="0"><div class="k">Lucro líquido acumulado</div><div class="v num ${T.ll<0?'neg':''}">${brl(T.ll)}</div><div class="d">Margem líquida de <b class="${T.ll<0?'neg':''}">${pctV(T.mLL)}</b> sobre a receita líquida</div><div class="hint">Passe o mouse para ver por empresa</div></div>
+   <div class="cell" id="dkRL" tabindex="0"><div class="k">Receita líquida</div><div class="v num">${brl(T.rl)}</div><div class="d">Receita bruta ${brl(T.rb)} | deduções ${pctV(T.rb?-T.ded/T.rb:null)}</div></div>
+   <div class="cell" id="dkEB" tabindex="0"><div class="k">EBITDA</div><div class="v num ${T.ebitda<0?'neg':'pos'}">${brl(T.ebitda)}</div><div class="d">Margem EBITDA de ${pctV(T.mEbitda)}</div></div>
+   <div class="cell" id="dkPS" tabindex="0"><div class="k">Despesas com pessoal</div><div class="v num neg">${brl(T.pes)}</div><div class="d">${pctV(T.pPes)} da receita líquida</div></div>
+   <div class="cell" id="dkFN" tabindex="0"><div class="k">Resultado financeiro</div><div class="v num ${T.fin<0?'neg':''}">${brl(T.fin)}</div><div class="d">${pctV(T.rl?T.fin/T.rl:null)} da receita líquida</div></div>`;
+  if(emps.size>1){
+    bindTip($('#dkLL'),empTip('Lucro líquido por empresa',t=>`${brl(t.ll)} (${pctV(t.mLL)})`));
+    bindTip($('#dkRL'),empTip('Receita líquida por empresa',t=>brl(t.rl)));
+    bindTip($('#dkEB'),empTip('EBITDA por empresa',t=>`${brl(t.ebitda)} (${pctV(t.mEbitda)})`));
+    bindTip($('#dkPS'),empTip('Pessoal por empresa',t=>`${brl(t.pes)} (${pctV(t.pPes)})`));
+    bindTip($('#dkFN'),empTip('Resultado financeiro por empresa',t=>brl(t.fin)));
+  }
+  drawDreChart(rows,months,emps,cc);
+  renderDreMatrix(rows,months);
+  try{renderDreAnalysis(ctx);}catch(e){console.error(e);$('#drMoM').innerHTML='<div class="panel-b muted" style="padding:16px">Não foi possível gerar a análise: '+esc(e.message)+'</div>';}
+}
+function drawDreChart(rows,months,emps,cc){
+  if(charts.dr)charts.dr.destroy();
+  const o=baseChartOpts();const seg=UI.dreSeg==='emp'&&emps.size>1;
+  const per={};for(const e of emps)per[e]=months.map(m=>dTots(rows.filter(r=>r.emp===e),new Set([m])));
+  const tot=months.map(m=>dTots(rows,new Set([m])));
+  let ds;
+  if(seg){
+    const es=[...emps].sort();
+    ds=es.map(e=>({label:coShort(e)+' | receita',data:per[e].map(t=>t.rl),backgroundColor:cc[e],stack:'rl',maxBarThickness:26,borderRadius:2}))
+      .concat(es.map(e=>({label:coShort(e)+' | lucro',data:per[e].map(t=>t.ll),backgroundColor:cc[e]+'88',borderColor:cc[e],borderWidth:1,stack:'ll',maxBarThickness:26,borderRadius:2})));
+    o.scales.x.stacked=true;o.scales.y.stacked=true;
+    o.plugins.tooltip.callbacks.footer=items=>{const t=tot[items[0].dataIndex];return [`Receita líquida total: ${brl(t.rl)}`,`Lucro líquido total: ${brl(t.ll)} (${pctV(t.mLL)})`];};
+    o.plugins.legend.position='bottom';o.plugins.legend.align='start';
+  }else{
+    ds=[{type:'bar',label:'Receita líquida',data:tot.map(t=>t.rl),backgroundColor:cssv('--brand-2'),borderRadius:4,maxBarThickness:30,order:2},
+        {type:'bar',label:'Lucro líquido',data:tot.map(t=>t.ll),backgroundColor:tot.map(t=>t.ll<0?cssv('--loss'):cssv('--gain')),borderRadius:4,maxBarThickness:30,order:2},
+        {type:'line',label:'Margem líquida',data:tot.map(t=>t.mLL===null?null:t.mLL*100),yAxisID:'y2',borderColor:cssv('--warn'),backgroundColor:cssv('--warn'),pointRadius:3,tension:.25,order:1}];
+    o.scales.y2={position:'right',grid:{display:false},border:{display:false},ticks:{color:cssv('--ink-2'),font:{family:FONT,size:11},callback:v=>v.toLocaleString('pt-BR',{maximumFractionDigits:0})+'%'}};
+    o.plugins.tooltip.callbacks.label=c=>c.dataset.yAxisID==='y2'?` Margem líquida: ${pctV(c.parsed.y/100)}`:' '+c.dataset.label+': '+brl(c.parsed.y);
+  }
+  charts.dr=new Chart($('#chDre'),{type:'bar',data:{labels:months.map(ymLabel),datasets:ds},options:o});
+}
+let DRX=null;
+function renderDreMatrix(rows,months){
+  const ms=new Set(months);const R=rows.filter(r=>ms.has(r._m));
+  const root={kids:new Map()};
+  const add=(n,name)=>{if(!n.kids.has(name))n.kids.set(name,{name,t:{},kids:new Map()});return n.kids.get(name);};
+  for(const r of R){const path=[r._A,r._C];if(r._B&&norm(r._B)!==norm(r._C))path.push(r._B);path.push(`${r.clasc} | ${r.nomec}`);
+    let n=root;for(const p of path){n=add(n,p);n.t[r._m]=(n.t[r._m]||0)+r.v;}}
+  const sum=o=>months.reduce((a,m)=>a+(o[m]||0),0);
+  const rl={};for(const m of months)rl[m]=0;const rlN=[...root.kids.values()].filter(n=>gNum(n.name)===1);for(const n of rlN)for(const m of months)rl[m]+=n.t[m]||0;
+  const rlT=sum(rl);
+  const cell=(v,cls='')=>`<td class="num ${cls} ${Math.abs(v||0)<0.005?'zero':''}">${n2(v||0)}</td>`;
+  const av=v=>`<td class="num tot muted">${Math.abs(rlT)>0.005?pctV(v/rlT):'–'}</td>`;
+  const q=UI.dreQ.trim().toLowerCase();const matches=n=>n.name.toLowerCase().includes(q)||[...n.kids.values()].some(matches);
+  const csv=[['Linha','Nível',...months.map(ymLabel),'Total','% RL']];let body='';
+  const tog=(id,open,label)=>`<button type="button" class="tg" data-id="${esc(id)}" aria-expanded="${open}" aria-label="Detalhar ${esc(label)}"><svg viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>`;
+  function walk(n,depth,id){
+    const kids=[...n.kids.values()].sort((a,b)=>depth===0?(DRE_POS[gNum(a.name)]||6)-(DRE_POS[gNum(b.name)]||6):Math.abs(sum(b.t))-Math.abs(sum(a.t)));
+    for(const k of kids){const kid=id+'›'+k.name;const tv=sum(k.t);
+      csv.push(['  '.repeat(depth)+k.name,['Grupo','Classificação','Subclassificação','Conta'][Math.min(depth,3)],...months.map(m=>(k.t[m]||0).toFixed(2)),tv.toFixed(2),Math.abs(rlT)>0.005?(tv/rlT*100).toFixed(2):'']);
+      if(q&&!matches(k))continue;
+      const hasKids=k.kids.size>0;const childMatch=q&&[...k.kids.values()].some(matches);
+      const open=hasKids&&(UI.dreAll||UI.dreOpen.has(kid)||(q&&childMatch));
+      const lv=depth===0?'grp0':'lv'+Math.min(depth,3);const warn=depth===0&&k.name===DRE_UNC?' warn':'';
+      body+=`<tr class="${lv}${warn}"><td title="${esc(k.name)}">${hasKids?tog(kid,open,k.name):'<span class="tg"></span>'}${esc(k.name)}</td>${months.map(m=>cell(k.t[m])).join('')}${cell(tv,'tot')}${av(tv)}</tr>`;
+      if(open)walk(k,depth+1,kid);else if(!q)collect(k,depth+1);
+    }
+  }
+  function collect(n,depth){for(const k of n.kids.values()){const tv=sum(k.t);csv.push(['  '.repeat(depth)+k.name,['Grupo','Classificação','Subclassificação','Conta'][Math.min(depth,3)],...months.map(m=>(k.t[m]||0).toFixed(2)),tv.toFixed(2),Math.abs(rlT)>0.005?(tv/rlT*100).toFixed(2):'']);collect(k,depth+1);}}
+  const acc={};months.forEach(m=>acc[m]=0);
+  const subRow=(label,cls)=>{const t={...acc};const tv=sum(t);body+=`<tr class="${cls}"><td>${label}</td>${months.map(m=>cell(t[m])).join('')}${cell(tv,'tot')}${av(tv)}</tr>`;csv.push([label,'Subtotal',...months.map(m=>(t[m]||0).toFixed(2)),tv.toFixed(2),Math.abs(rlT)>0.005?(tv/rlT*100).toFixed(2):'']);};
+  const pctRow=label=>{const tv=sum(acc);body+=`<tr class="pct"><td>${label}</td>${months.map(m=>`<td class="num">${Math.abs(rl[m])>0.005?pctV(acc[m]/rl[m]):'–'}</td>`).join('')}<td class="num tot">${Math.abs(rlT)>0.005?pctV(tv/rlT):'–'}</td><td class="num tot"></td></tr>`;};
+  const groups=[...root.kids.values()].sort((a,b)=>(DRE_POS[gNum(a.name)]||6)-(DRE_POS[gNum(b.name)]||6));
+  let didE=false,didO=false;
+  for(const g of groups){const gn=gNum(g.name);
+    if(!didE&&(DRE_POS[gn]||6)>2){subRow('EBITDA','sub');pctRow('Margem EBITDA');didE=true;}
+    if(!didO&&(DRE_POS[gn]||6)>3){subRow('Resultado operacional (EBIT)','sub');didO=true;}
+    walk({kids:new Map([[g.name,g]])},0,'');for(const m of months)acc[m]+=g.t[m]||0;
+  }
+  if(!didE){subRow('EBITDA','sub');pctRow('Margem EBITDA');}
+  if(!didO)subRow('Resultado operacional (EBIT)','sub');
+  subRow('Lucro líquido','key');pctRow('Margem líquida');
+  $('#drWrap').innerHTML=`<table class="mx"><thead><tr><th>Demonstração do resultado</th>${months.map(m=>`<th>${ymLabel(m)}</th>`).join('')}<th class="tot">Total</th><th class="tot">% RL</th></tr></thead><tbody>${body}</tbody></table>`;
+  DRX=csv;$('#drExpand').textContent=UI.dreAll?'Recolher tudo':'Expandir tudo';
+  const unc=new Set(R.filter(r=>r._A===DRE_UNC).map(r=>r.clasc)).size;
+  $('#drBanner').innerHTML=unc?`<div class="banner"><span>${unc} conta(s) contábil(is) com movimento no período não estão no plano de contas da DRE e aparecem em “${DRE_UNC}”.</span><button class="btn sm" type="button" id="drGo">Classificar contas</button></div>`:'';
+  const go=$('#drGo');if(go)go.onclick=()=>{UI.plMode='dre';UI.plShow='unc';switchView('plano');};
+}
+function dreVar(rows,A,B,labA,labB,max,refRL){
+  const cls=new Map();
+  for(const r of rows){const inA=A.has(r._m),inB=B.has(r._m);if(!inA&&!inB)continue;const k=r._A+'||'+r._C;let o=cls.get(k);if(!o){o={c:r._C,g:r._g,a:0,b:0,rows:[]};cls.set(k,o);}o[inA?'a':'b']+=r.v;o.rows.push(r);}
+  const thr=Math.max(500,Math.abs(refRL)*0.01);const out=[];
+  const list=[...cls.values()].filter(o=>Math.abs(o.a-o.b)>=thr).sort((x,y)=>Math.abs(y.a-y.b)-Math.abs(x.a-x.b)).slice(0,max);
+  for(const o of list){
+    const pos=(o.a+o.b)>=0;const d=o.a-o.b;const accts=new Set(o.rows.map(r=>r.clasc));
+    const isRev=o.g===1&&!/^\(-\)|dedu/i.test(o.c);
+    const key=r=>isRev?(r.cp||cleanHist(r.h).replace(/^SERVI[CÇ]OS PRESTADOS\s*/,'')||r.nomec):accts.size>1?r.nomec:cleanHist(r.h);
+    const dm=new Map();for(const r of o.rows){const nm=key(r);const k=norm(nm);const x=dm.get(k)||{n:nm,a:0,b:0};x[A.has(r._m)?'a':'b']+=r.v;dm.set(k,x);}
+    const drv=[...dm.values()].map(x=>({...x,d:x.a-x.b})).filter(x=>Math.sign(x.d)===Math.sign(d)&&Math.abs(x.d)>=thr/4).sort((x,y)=>Math.abs(y.d)-Math.abs(x.d)).slice(0,3);
+    const p=dpct(Math.abs(o.a),Math.abs(o.b));const pTxt=p===null?'sem valor em '+labB:pctS(p);
+    let txt,tone;
+    if(pos){const up=d>0;tone=up?'up':'dn';txt=`<b>${esc(o.c)}</b> ${up?'cresceu':'caiu'} ${fK(d)} (${pTxt}) e somou ${fK(o.a)} em ${labA}`;}
+    else{const more=d<0;tone=more?'dn':'up';txt=`<b>${esc(o.c)}</b> ${more?'aumentou':'diminuiu'} ${fK(d)} (${pTxt}), para ${fK(o.a)} em ${labA}`;}
+    if(drv.length)txt+=', principalmente por '+joinPt(drv.map(x=>`${esc(x.n)} (${sgn(pos?x.d:-x.d)}${fK(x.d)}${Math.abs(x.b)<0.005?', sem ocorrência em '+labB:Math.abs(x.a)<0.005?', sem ocorrência em '+labA:''})`));
+    out.push({tone,txt:txt+'.'});
+  }
+  return out;
+}
+function dreKpis(a,b,labB){
+  const k=(lab,x,y,good,isPct)=>{const d=x-y;const cls=Math.abs(d)<0.0005?'':((d>0)===good?'pos':'neg');
+    return `<div class="kpi"><div class="k">${lab}</div><div class="v num">${isPct?pctV(x):brl(x)}</div><div class="delta ${cls}">${isPct?ppS(x-y):(sgn(d)+fK(d)+' ('+pctS(dpct(x,y))+')')} vs ${labB}</div></div>`;};
+  return `<div class="dk">${k('Receita líquida',a.rl,b.rl,true)}${k('EBITDA',a.ebitda,b.ebitda,true)}${k('Lucro líquido',a.ll,b.ll,true)}${a.mLL!==null&&b.mLL!==null?k('Margem líquida',a.mLL,b.mLL,true,true):''}</div>`;
+}
+function renderDreAnalysis(ctx){
+  const {rows,months,mx}=ctx;const M=months[months.length-1];const partial=mx<monthEnd(M);
+  const minM=rows.reduce((a,r)=>r._m<a?r._m:a,'9999-99');
+  $('#drAnSub').textContent=`Referência: ${MESL[+M.slice(5)-1]} de ${M.slice(0,4)}, último mês selecionado${partial?` (parcial, lançamentos até ${fmtD(mx)})`:''}.`;
+  // MoM
+  const P=prevMonth(M),A=new Set([M]),B=new Set([P]),la=ymLabel(M),lb=ymLabel(P);
+  const a=dTots(rows,A),b=dTots(rows,B);let mom=[];
+  if(b.n){
+    mom.push({tone:a.ll<0?'dn':a.ll>=b.ll?'up':'wa',txt:`Lucro líquido de <b>${fK(a.ll)}</b>${a.ll<0?' (prejuízo)':''} em ${la}, ${sgn(a.ll-b.ll)}${fK(a.ll-b.ll)} vs ${lb}, com margem líquida de ${pctV(a.mLL)} (${ppS(a.mLL!==null&&b.mLL!==null?a.mLL-b.mLL:null)}). O EBITDA foi de ${fK(a.ebitda)}, margem de ${pctV(a.mEbitda)} (${ppS(a.mEbitda!==null&&b.mEbitda!==null?a.mEbitda-b.mEbitda:null)}).`});
+    if(a.pPes!==null&&b.pPes!==null)mom.push({tone:a.pPes>b.pPes+0.02?'wa':'nt',txt:`Despesas com pessoal de <b>${fK(a.pes)}</b> consumiram ${pctV(a.pPes)} da receita líquida (${pctV(b.pPes)} em ${lb}).${a.pPes>b.pPes+0.02?' O avanço pode refletir provisões de 13º e férias, rescisões ou novas contratações; confira os principais motivos abaixo.':''}`});
+    mom=mom.concat(dreVar(rows,A,B,la,lb,6,b.rl));
+  }
+  $('#drMoM').innerHTML=`<div class="panel-h"><div><h3>Mês contra mês: ${la} vs ${lb}</h3><div class="sub">Principais variações do resultado e o que as explica</div></div></div><div class="panel-b">${b.n?dreKpis(a,b,lb)+insList(mom):`<p class="muted">Não há lançamentos em ${lb} para comparar.</p>`}</div>`;
+  // YTD
+  const Y=+M.slice(0,4),mm=M.slice(5);
+  const YA=new Set(monthsBetween(`${Y}-01`,M)),YB=new Set(monthsBetween(`${Y-1}-01`,`${Y-1}-${mm}`));
+  const lA=`Jan–${MES[+mm-1]}/${String(Y).slice(2)}`,lB=`Jan–${MES[+mm-1]}/${String(Y-1).slice(2)}`;
+  const ya=dTots(rows,YA),yb=dTots(rows,YB);const hasB=[...YB].every(m=>m>=minM)&&yb.n>0;let ytd=[];
+  if(hasB){
+    ytd.push({tone:ya.ll>=yb.ll?'up':'dn',txt:`Receita líquida acumulada de <b>${fK(ya.rl)}</b> em ${lA}, ${pctS(dpct(ya.rl,yb.rl))} sobre ${lB}. O lucro líquido foi de ${fK(ya.ll)} (${fK(yb.ll)} no ano anterior), com margem de ${pctV(ya.mLL)} (${ppS(ya.mLL!==null&&yb.mLL!==null?ya.mLL-yb.mLL:null)}); margem EBITDA de ${pctV(ya.mEbitda)} (${ppS(ya.mEbitda!==null&&yb.mEbitda!==null?ya.mEbitda-yb.mEbitda:null)}).`});
+    const gR=dpct(ya.rl,yb.rl),gC=dpct(-ya.cd,-yb.cd);
+    if(gR!==null&&gC!==null){const st=gC>gR+0.01?'acima':gC<gR-0.01?'abaixo':'em linha';
+      ytd.push({tone:st==='acima'?'wa':st==='abaixo'?'up':'nt',txt:`Os custos e despesas operacionais ${gC>=0?'cresceram':'caíram'} ${pctS(gC)}, ${st==='em linha'?'em linha com a':st+' da'} receita líquida (${pctS(gR)}). ${st==='acima'?'A estrutura está crescendo mais rápido que a receita, o que pressiona a margem.':st==='abaixo'?'Há ganho de escala: a receita cresce mais rápido que a estrutura.':'A margem operacional tende a se manter estável.'}`});}
+    if(ya.pPes!==null&&yb.pPes!==null)ytd.push({tone:ya.pPes>yb.pPes+0.01?'wa':'nt',txt:`Pessoal representou <b>${pctV(ya.pPes)}</b> da receita líquida (${pctV(yb.pPes)} em ${lB}).`});
+    if(Math.abs(ya.fin-yb.fin)>Math.max(1000,Math.abs(yb.rl)*0.01))ytd.push({tone:ya.fin>yb.fin?'up':'dn',txt:`O resultado financeiro passou de ${fK(yb.fin)}${yb.fin<0?' negativos':''} para ${fK(ya.fin)}${ya.fin<0?' negativos':''}, ${ya.fin>yb.fin?'aliviando':'pressionando'} o lucro em ${fK(ya.fin-yb.fin)}.`});
+    ytd=ytd.concat(dreVar(rows,YA,YB,lA,lB,5,yb.rl));
+  }else ytd.push({tone:'nt',txt:`Não há base completa de ${lB}. Receita líquida acumulada de <b>${fK(ya.rl)}</b>, EBITDA de ${fK(ya.ebitda)} (${pctV(ya.mEbitda)}) e lucro líquido de ${fK(ya.ll)} (${pctV(ya.mLL)}).`});
+  // competência x caixa
+  const cr=anaBase();const ct=tots(cr,YA);
+  if(ct.n&&ya.rb>0)ytd.push({tone:ct.rec/ya.rb<0.9?'wa':'nt',txt:`Na comparação com o caixa, os recebimentos (grupo 1 do fluxo) somaram ${fK(ct.rec)}, equivalentes a <b>${pctV(ct.rec/ya.rb)}</b> da receita bruta contábil, e a geração operacional de caixa (${fK(ct.op)}) correspondeu a ${pctV(ya.ebitda?ct.op/ya.ebitda:null)} do EBITDA.${ct.rec/ya.rb<0.9?' Parte relevante do faturamento ainda não virou caixa: acompanhe a inadimplência na aba de títulos.':''}`});
+  // estrutura entre empresas
+  const es=[...selEmps()];
+  if(es.length>1)for(const e of es){const t=dTots(rows.filter(r=>r.emp===e),YA);if(t.rl>0&&t.pPes!==null&&t.pPes<0.05&&t.mEbitda>0.5)ytd.push({tone:'wa',txt:`<b>${esc(coShort(e))}</b> tem margem EBITDA de ${pctV(t.mEbitda)} com pessoal de apenas ${pctV(t.pPes)} da receita, sinal de que a equipe e a estrutura que a atendem estão contabilizadas em outra empresa do grupo. Para medir a margem real de cada negócio, avalie um rateio gerencial desses custos.`});}
+  $('#drYTD').innerHTML=`<div class="panel-h"><div><h3>Acumulado do ano: ${lA} vs ${lB}</h3><div class="sub">Crescimento, margens, estrutura de custos e conversão em caixa</div></div></div><div class="panel-b">${hasB?dreKpis(ya,yb,lB):''}${insList(ytd)}</div>`;
+  // comparativo
+  if(es.length<2){$('#drCo').innerHTML='';$('#drCo').hidden=true;return;}
+  $('#drCo').hidden=false;
+  $('#drCo').innerHTML=`<div class="panel-h"><div><h3>Comparativo entre empresas</h3><div class="sub">Acumulado ${lA}</div></div></div><div class="panel-b"><div class="tablewrap" style="max-height:none"><table class="cp"><thead><tr><th>Empresa</th><th>Receita líquida</th><th>Var. ano anterior</th><th>EBITDA</th><th>Margem EBITDA</th><th>Lucro líquido</th><th>Margem líquida</th><th>Pessoal / RL</th></tr></thead><tbody>${es.sort().map(e=>{const R=rows.filter(r=>r.emp===e);const t=dTots(R,YA),u=dTots(R,YB);const p=hasB&&u.n?dpct(t.rl,u.rl):null;
+    return `<tr><td>${esc(coShort(e))}</td><td class="num">${n2(t.rl)}</td><td class="num ${p===null?'':p>=0?'pos':'neg'}">${pctS(p)}</td><td class="num ${t.ebitda<0?'neg':''}">${n2(t.ebitda)}</td><td class="num">${pctV(t.mEbitda)}</td><td class="num ${t.ll<0?'neg':''}">${n2(t.ll)}</td><td class="num">${pctV(t.mLL)}</td><td class="num">${pctV(t.pPes)}</td></tr>`;}).join('')}</tbody></table></div></div>`;
+}
+function renderPlanoDre(){
+  DB.drePlan=DB.drePlan||defaultDreMap();
+  const mov={};for(const r of (DB.gl||[])){const k=r.clasc;mov[k]=mov[k]||{nome:r.nomec,codic:r.codic,n:0,v:0};mov[k].n++;mov[k].v+=r.v;}
+  const keys=new Set([...Object.keys(DB.drePlan),...Object.keys(mov)]);
+  let list=[...keys].map(k=>{const p=DB.drePlan[k];const m=mov[k];const c=p&&p.A?p:dreClass({clasc:k,codic:m?.codic});const has=c.A&&c.A!==DRE_UNC;
+    return {k,nome:p?.nome||m?.nome||'',A:has?c.A:'',C:has?c.C:'',B:has?c.B:'',src:p?p.src:has?'codigo':'',n:m?m.n:0,v:m?m.v:0};});
+  const nUnc=list.filter(x=>x.n&&!x.A).length,nMov=list.filter(x=>x.n).length;
+  $('#plSub').textContent=`${fInt.format(nMov)} contas contábeis com movimento, ${fInt.format(nUnc)} sem classificação. As alterações valem imediatamente para a DRE`;
+  if(UI.plShow==='mov')list=list.filter(x=>x.n);else if(UI.plShow==='unc')list=list.filter(x=>!x.A);
+  const q=UI.plQ.toLowerCase();if(q)list=list.filter(x=>(x.k+' '+x.nome+' '+x.A+' '+x.C+' '+x.B).toLowerCase().includes(q));
+  list.sort((a,b)=>(!a.A?0:1)-(!b.A?0:1)||a.k.localeCompare(b.k));
+  const groups=[...new Set(Object.values(DB.drePlan).map(p=>p.A).filter(Boolean))].sort();
+  const cls=[...new Set(Object.values(DB.drePlan).flatMap(p=>[p.C,p.B]).filter(Boolean))].sort();
+  $('#dlClassif').innerHTML=cls.map(c=>`<option value="${esc(c)}">`).join('');
+  const tag=x=>!x.A?'<span class="tag u">Não classificada</span>':x.src==='manual'?'<span class="tag m">Ajuste manual</span>':x.src==='importado'?'<span class="tag m">Importada</span>':x.src==='codigo'?'<span class="tag">Pelo código</span>':'<span class="tag">Plano padrão</span>';
+  $('#plTbl').innerHTML=list.length?`<table class="pl"><thead><tr><th>Conta</th><th style="min-width:220px">Descrição</th><th style="min-width:200px">Grupo da DRE</th><th style="min-width:190px">Classificação</th><th style="min-width:190px">Subclassificação</th><th class="r">Lançamentos</th><th class="r">Saldo (créd. − déb.)</th><th>Origem</th></tr></thead><tbody>${list.map(x=>`
+    <tr class="${x.A?'':'unc'}" data-k="${esc(x.k)}"><td class="num">${esc(x.k)}</td><td>${esc(x.nome)}</td>
+      <td><select data-f="A">${['<option value="">Selecione…</option>'].concat(groups.map(g=>`<option ${g===x.A?'selected':''}>${esc(g)}</option>`)).join('')}</select></td>
+      <td><input data-f="C" list="dlClassif" value="${esc(x.C)}"></td><td><input data-f="B" list="dlClassif" value="${esc(x.B)}"></td>
+      <td class="r num">${x.n?fInt.format(x.n):'–'}</td><td class="r num ${x.v<0?'neg':''}">${x.n?n2(x.v):'–'}</td><td>${tag(x)}</td></tr>`).join('')}</tbody></table>`
+    :`<p class="muted" style="padding:14px">${UI.plShow==='unc'?'Todas as contas estão classificadas.':'Nenhuma conta encontrada.'}</p>`;
+  $('#plTbl').querySelectorAll('tr[data-k]').forEach(tr=>tr.querySelectorAll('[data-f]').forEach(inp=>inp.onchange=async()=>{
+    const k=tr.dataset.k;const cur=DB.drePlan[k]||{conta:k,codic:'',nome:tr.children[1].textContent,A:'',C:'',B:''};
+    cur[inp.dataset.f]=inp.value.trim();cur.src='manual';delete cur.file;if(!cur.C&&cur.A)cur.C=cur.A.replace(/^\d+\.\s*/,'');
+    DB.drePlan[k]=cur;DRE_CODIC=null;await persist();
+    const c=tr.querySelector('[data-f=C]');if(c&&!c.value)c.value=cur.C;tr.classList.toggle('unc',!cur.A);tr.lastElementChild.innerHTML=cur.A?'<span class="tag m">Ajuste manual</span>':'<span class="tag u">Não classificada</span>';toast('Classificação salva.',1800);}));
+}
+
 /* ======================= TÍTULOS ======================= */
 const BUCKETS=[
   {id:'v90',l:'Vencido há mais de 90 dias',s:'Vencido +90d',f:d=>d>90,c:'--loss'},
@@ -1324,6 +1612,10 @@ function renderFat(){
 
 /* ======================= PLANO DE CONTAS ======================= */
 function renderPlano(){
+  $('#plMode').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===(UI.plMode||'fc')));
+  $('#plTitle').textContent=UI.plMode==='dre'?'Plano de contas da DRE contábil':'Plano de contas do fluxo de caixa';
+  $('#plShow').value=UI.plShow;
+  if(UI.plMode==='dre')return renderPlanoDre();
   const mov={};for(const r of DB.cash){const k=norm(r.cat);mov[k]=mov[k]||{cat:r.cat,n:0,v:0};mov[k].n++;mov[k].v+=r.v;}
   const keys=new Set([...Object.keys(DB.plan),...Object.keys(mov)]);
   let list=[...keys].map(k=>{const p=DB.plan[k];const m=mov[k];return {k,cat:p?p.cat:m.cat,grupo:p?p.grupo:'',classif:p?p.classif:'',moeda:p?p.moeda||'Real':'Real',src:p?p.src:'',n:m?m.n:0,v:m?m.v:0};});
@@ -1377,8 +1669,8 @@ async function decryptPayload(u8,pass){
   return JSON.parse(new TextDecoder().decode(await gz(new Uint8Array(plain),'d')));
 }
 function buildPayload(){
-  const {cash,titles,openings,splits,files,empMap,plan,models,logo,rev}=DB;
-  return {v:1,rev,publishedAt:new Date().toISOString(),data:{cash:cash.map(({_g,_c,_t,_m,...r})=>r),titles,openings,splits,files,empMap,plan,models,logo}};
+  const {cash,titles,gl,openings,splits,files,empMap,plan,drePlan,models,logo,rev}=DB;
+  return {v:1,rev,publishedAt:new Date().toISOString(),data:{cash:cash.map(({_g,_c,_t,_m,...r})=>r),gl:(gl||[]).map(({_A,_C,_B,_m,_g,...r})=>r),titles,openings,splits,files,empMap,plan,drePlan,models,logo}};
 }
 function b64(u8){let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s);}
 async function ghErr(r){let m='';try{m=(await r.json()).message||'';}catch(e){}
@@ -1509,7 +1801,7 @@ function renderPublish(){
 
 /* ======================= BASES ======================= */
 function renderBases(){
-  const kn={caixa:'Fluxo de caixa',si:'Saldo inicial',titulos:'Títulos',plano:'Plano de contas'};
+  const kn={caixa:'Fluxo de caixa',si:'Saldo inicial',titulos:'Títulos',plano:'Plano de contas',razao:'Razão contábil',planodre:'Plano de contas DRE'};
   const cntBy={};for(const r of DB.cash)cntBy[r.src]=(cntBy[r.src]||0)+1;for(const t of DB.titles)cntBy['T:'+t.src]=(cntBy['T:'+t.src]||0)+1;
   const fs=DB.files.slice().sort((a,b)=>a.kind===b.kind?(a.name<b.name?-1:1):(a.kind<b.kind?-1:1));
   const del=(f,i)=>`<button class="btn sm danger" type="button" data-del="${i}">Excluir</button>`;
@@ -1519,6 +1811,8 @@ function renderBases(){
       return `<tr><td>${esc(f.name)}</td><td>${kn.caixa}</td><td>${esc(coShort(emp))}</td><td class="r num">${fInt.format(cntBy[f.name]||0)}</td><td>${fmtD(f.min)} a ${fmtD(f.max)}</td><td class="r num">${brl(f.finalSaldo||0)}</td><td class="r num ${ok?'ok':'bad'}">${brl(calc)} ${ok?'✓':'≠'}</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}
     if(f.kind==='si'){const sp=DB.splits[f.fid];const sum=sp?Object.values(sp.accounts).reduce((a,b)=>a+b,0):0;const o=openingFor(f.fid);const ok=sp&&o.date===sp.date&&Math.abs(o.value-sum)<0.05;
       return `<tr><td>${esc(f.name)}</td><td>${kn.si}</td><td>${esc(coShort(DB.empMap[f.fid]))}</td><td class="r num">${sp?Object.keys(sp.accounts).length:0} contas</td><td>${fmtD(f.min)}</td><td class="r num">${brl(o.value)}</td><td class="r num ${ok?'ok':'bad'}">${brl(sum)} ${ok?'✓':'≠'}</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}
+    if(f.kind==='razao'){const n=(DB.gl||[]).filter(r=>r.src===f.name).length;return `<tr><td>${esc(f.name)}</td><td>Razão contábil</td><td>${esc(coShort(DB.empMap[f.fid]||''))}</td><td class="r num">${fInt.format(n)}</td><td>${fmtD(f.min)} a ${fmtD(f.max)}</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}
+    if(f.kind==='planodre')return `<tr><td>${esc(f.name)}</td><td>Plano de contas DRE</td><td>Todas</td><td class="r num">${fInt.format(f.rows||0)} contas</td><td>–</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;
     if(f.kind==='plano')return `<tr><td>${esc(f.name)}</td><td>${kn.plano}</td><td>Todas</td><td class="r num">${fInt.format(f.rows||0)} categorias</td><td>–</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;
     return `<tr><td>${esc(f.name)}</td><td>${kn.titulos}</td><td>${(f.emps||[]).map(coShort).join(', ')}</td><td class="r num">${fInt.format(cntBy['T:'+f.name]||0)}</td><td>${fInt.format(f.novos||0)} novos na carga</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}).join('')}</tbody></table>
     <div class="note">Nos extratos, a conferência compara o saldo final informado com o saldo recalculado (saldo anterior mais lançamentos conciliados). Nos arquivos de saldo inicial, compara o saldo anterior do extrato com a soma das contas. Ao excluir um extrato, saem os lançamentos que vieram dele; ao excluir uma base de títulos, saem os títulos cuja última versão veio dela.</div>`:'<p class="muted">Nenhuma base carregada ainda.</p>';
@@ -1542,13 +1836,14 @@ function applyTheme(){const t=DB.theme||'auto';if(t==='auto')document.documentEl
 /* ======================= render geral ======================= */
 function switchView(v){UI.view=v;scrollTo({top:0});document.querySelectorAll('nav.tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.v===v));render();}
 function render(){
-  const has=DB.cash.length||DB.titles.length;
+  const has=DB.cash.length||DB.titles.length||(DB.gl||[]).length;
   const free=['bases','plano'].includes(UI.view);
   $('#emptyState').hidden=!!has||free;
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+UI.view&&(has||free)));
   if(!has&&!free)return;
   try{
     if(UI.view==='caixa')renderCaixa();
+    if(UI.view==='dre')renderDre();
     if(UI.view==='titulos')renderTitulos();
     if(UI.view==='fat')renderFat();
     if(UI.view==='plano')renderPlano();
@@ -1563,7 +1858,7 @@ $('#fileIn').onchange=e=>{handleFiles(e.target.files);e.target.value='';};
 $('#btnLogo').onclick=()=>$('#logoIn').click();
 $('#logoIn').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=async()=>{DB.logo=r.result;renderLogo();await persist();toast('Logo atualizada.');};r.readAsDataURL(f);e.target.value='';};
 $('#btnTheme').onclick=async()=>{DB.theme={auto:'light',light:'dark',dark:'auto'}[DB.theme||'auto'];applyTheme();await persist();render();};
-$('#btnClear').onclick=async()=>{if(!confirm('Apagar todas as bases carregadas neste navegador? O plano de contas e a logo são mantidos.'))return;const keep={plan:DB.plan,logo:DB.logo,theme:DB.theme,empMap:DB.empMap,models:DB.models};DB={...blankDB(),...keep};await persist();UI.emps=null;UI.contas=null;UI._init=false;syncFilters();render();toast('Bases apagadas.');};
+$('#btnClear').onclick=async()=>{if(!confirm('Apagar todas as bases carregadas neste navegador? O plano de contas e a logo são mantidos.'))return;const keep={plan:DB.plan,drePlan:DB.drePlan,logo:DB.logo,theme:DB.theme,empMap:DB.empMap,models:DB.models};DB={...blankDB(),...keep};await persist();UI.emps=null;UI.contas=null;UI._init=false;syncFilters();render();toast('Bases apagadas.');};
 document.querySelectorAll('nav.tabs button').forEach(b=>b.onclick=()=>switchView(b.dataset.v));
 $('#coChips').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;const emps=allEmps();const e1=b.dataset.e;
   if(e1==='*')UI.emps=null;
@@ -1580,11 +1875,19 @@ $('#mxCsv').onclick=()=>{if(!MX)return;const txt='\uFEFF'+MX.map(r=>r.map((c,i)=
 $('#prDate').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.prDate=b.dataset.d;$('#prDate').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
 $('#prOver').onchange=e=>{UI.prOver=e.target.checked;render();};
 $('#ftFut').onchange=e=>{UI.ftFut=e.target.checked;render();};
+$('#plMode').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.plMode=b.dataset.m;render();};
+$('#drSeg').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.dreSeg=b.dataset.s;$('#drSeg').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
+$('#drSearch').oninput=e=>{UI.dreQ=e.target.value;clearTimeout(e.target._t);e.target._t=setTimeout(render,250);};
+$('#drExpand').onclick=()=>{UI.dreAll=!UI.dreAll;if(!UI.dreAll)UI.dreOpen.clear();render();};
+$('#drWrap').onclick=e=>{const b=e.target.closest('.tg[data-id]');if(!b)return;const id=b.dataset.id;
+  if(UI.dreAll){UI.dreAll=false;document.querySelectorAll('#drWrap .tg[data-id]').forEach(x=>{if(x.getAttribute('aria-expanded')==='true')UI.dreOpen.add(x.dataset.id);});}
+  UI.dreOpen.has(id)?UI.dreOpen.delete(id):UI.dreOpen.add(id);render();};
+$('#drCsv').onclick=()=>{if(!DRX)return;const txt='\uFEFF'+DRX.map(r=>r.map((c,i)=>i<2?'"'+String(c).replace(/"/g,'""')+'"':String(c).replace('.',',')).join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));a.download='dre_contabil.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);};
 $('#plShow').onchange=e=>{UI.plShow=e.target.value;render();};
 $('#plSearch').oninput=e=>{UI.plQ=e.target.value;clearTimeout(e.target._t);e.target._t=setTimeout(render,250);};
-$('#plExport').onclick=()=>{const rows=[['Tipo','Grupo','Classificação','Categoria','Moeda']];for(const p of Object.values(DB.plan).sort((a,b)=>a.grupo.localeCompare(b.grupo)||a.classif.localeCompare(b.classif)||a.cat.localeCompare(b.cat)))rows.push(['2. Movimentos',p.grupo,p.classif,p.cat,p.moeda||'Real']);
+$('#plExport').onclick=()=>{if(UI.plMode==='dre'){const rows=[['Código Conta','Conta','DESCRIÇÃO CONTA','Classificação A','Classificação','Classificação B']];for(const p of Object.values(DB.drePlan).sort((a,b)=>a.conta.localeCompare(b.conta)))rows.push([p.codic||'',p.conta,p.nome||'',p.A,p.C||'',p.B||'']);const txt='\uFEFF'+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));a.download='de_para_plano_de_contas_dre.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);return;}const rows=[['Tipo','Grupo','Classificação','Categoria','Moeda']];for(const p of Object.values(DB.plan).sort((a,b)=>a.grupo.localeCompare(b.grupo)||a.classif.localeCompare(b.classif)||a.cat.localeCompare(b.cat)))rows.push(['2. Movimentos',p.grupo,p.classif,p.cat,p.moeda||'Real']);
   const txt='\uFEFF'+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));a.download='de_para_plano_de_contas_fc.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);};
-$('#plReset').onclick=async()=>{if(!confirm('Restaurar o plano de contas padrão? Ajustes manuais e importações serão descartados.'))return;DB.plan=defaultPlanMap();DB.files=DB.files.filter(f=>f.kind!=='plano');await persist();render();toast('Plano padrão restaurado.');};
+$('#plReset').onclick=async()=>{if(UI.plMode==='dre'){if(!confirm('Restaurar o plano de contas padrão da DRE? Ajustes manuais e importações serão descartados.'))return;DB.drePlan=defaultDreMap();DRE_CODIC=null;DB.files=DB.files.filter(f=>f.kind!=='planodre');await persist();render();toast('Plano padrão da DRE restaurado.');return;}if(!confirm('Restaurar o plano de contas padrão? Ajustes manuais e importações serão descartados.'))return;DB.plan=defaultPlanMap();DB.files=DB.files.filter(f=>f.kind!=='plano');await persist();render();toast('Plano padrão restaurado.');};
 ['dragenter','dragover'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();document.body.classList.add('drop-on');}));
 ['dragleave','drop'].forEach(t=>document.addEventListener(t,e=>{e.preventDefault();if(t==='drop'||!e.relatedTarget)document.body.classList.remove('drop-on');}));
 document.addEventListener('drop',e=>{if(e.dataTransfer?.files?.length)handleFiles(e.dataTransfer.files);});
