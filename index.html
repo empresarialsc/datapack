@@ -340,6 +340,14 @@ table.mx tr.pct td{color:var(--ink-3);font-style:italic;font-size:12px}
 table.mx tr.pct td:first-child{padding-left:22px}
 </style>
 
+<style>
+table.mx.orc thead tr.h2 th{top:29px;font-weight:500;font-size:11px}
+table.mx.orc thead th.mh{text-align:center;border-left:1px solid var(--line)}
+table.mx.orc thead th.na{color:var(--ink-3)}
+table.mx.orc td.pos{color:var(--gain)} table.mx.orc td.neg{color:var(--loss)}
+table.mx.orc tr.key td,table.mx.orc tr.key td.pos,table.mx.orc tr.key td.neg,table.mx.orc tr.key td.zero{color:#fff}
+.grid.g3 .chart{height:260px}
+</style>
 </head>
 <body>
 <header class="top">
@@ -369,6 +377,7 @@ table.mx tr.pct td:first-child{padding-left:22px}
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-v="caixa">Fluxo de caixa</button>
     <button role="tab" aria-selected="false" data-v="dre">DRE contábil</button>
+    <button role="tab" aria-selected="false" data-v="orc">Orçado x Realizado</button>
     <button role="tab" aria-selected="false" data-v="titulos">Títulos em aberto</button>
     <button role="tab" aria-selected="false" data-v="fat">Faturamento</button>
     <button role="tab" aria-selected="false" data-v="plano">Plano de contas</button>
@@ -467,6 +476,12 @@ table.mx tr.pct td:first-child{padding-left:22px}
     <div class="panel"><div class="panel-b" style="padding-top:16px"><div class="chart tall"><canvas id="chProj"></canvas></div><div class="note">A projeção considera somente títulos já lançados. Receitas recorrentes ainda não emitidas não aparecem nos meses futuros, então leia a linha de saldo como cenário de compromissos já contratados.</div></div></div>
   </section>
 
+  <!-- ORÇADO x REALIZADO -->
+  <section class="view" id="v-orc">
+    <div class="section-h"><div><h2>Orçado x Realizado</h2><div class="sub" id="orcSub"></div></div></div>
+    <div id="orcBody"></div>
+  </section>
+
   <!-- FATURAMENTO -->
   <section class="view" id="v-fat">
     <div class="section-h">
@@ -475,7 +490,12 @@ table.mx tr.pct td:first-child{padding-left:22px}
         <label class="sub" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="ftFut"> Incluir emissões após a data de referência</label>
       </div>
     </div>
-    <div class="panel ledger" id="ftKpi"></div>
+    <div class="panel cli-search"><div class="panel-b" style="padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <label for="ftCliQ" style="font-weight:600">Histórico de um cliente</label>
+      <input type="search" id="ftCliQ" list="dlCli" placeholder="Digite o nome ou o CNPJ/CPF do cliente" style="flex:1;min-width:280px">
+      <datalist id="dlCli"></datalist><span class="sub">Mostra todo o histórico de faturamento, títulos em aberto e, se houver, o orçado do cliente</span></div></div>
+    <div class="panel" id="ftCliBox" hidden style="margin-top:16px"></div>
+    <div class="panel ledger" id="ftKpi" style="margin-top:16px"></div>
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr);margin-top:16px" id="ftGrid">
       <div class="panel"><div class="panel-h"><div><h3>Composição: top 10 clientes do período</h3><div class="sub">Demais clientes agrupados</div></div></div><div class="panel-b"><div class="chart tall"><canvas id="chFat"></canvas></div></div></div>
       <div class="panel"><div class="panel-h"><h3>Top 10 no período</h3></div><div class="panel-b"><div class="tw2" style="max-height:380px" id="ftTop"></div></div></div>
@@ -550,7 +570,7 @@ const pct = v => (v*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
 function compact(v){const a=Math.abs(v);if(a>=1e6)return (v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:1})+' mi';if(a>=1e3)return (v/1e3).toLocaleString('pt-BR',{maximumFractionDigits:0})+' mil';return v.toLocaleString('pt-BR',{maximumFractionDigits:0});}
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function parseNum(s){if(s==null)return 0;if(typeof s==='number')return s;s=String(s).trim();if(!s||s==='N/D')return 0;if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const v=parseFloat(s);return isNaN(v)?0:v;}
-function brDate(s){if(!s)return '';s=String(s).trim();let m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(m)return `${m[3]}-${m[2]}-${m[1]}`;m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:'';}
+function brDate(s){if(!s)return '';s=String(s).trim();if(/^\d{5}(\.\d+)?$/.test(s))return new Date(Date.UTC(1899,11,30)+Math.floor(+s)*864e5).toISOString().slice(0,10);let m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(m)return `${m[3]}-${m[2]}-${m[1]}`;m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:'';}
 const ym = d => d.slice(0,7);
 const ymLabel = k => MES[+k.slice(5,7)-1]+'/'+k.slice(2,4);
 function addDays(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
@@ -585,9 +605,9 @@ const isTransfer = r => {const c=classify(r.cat);return norm(c.classif)==='trans
 
 /* ======================= estado ======================= */
 const PRESET_MAP={'147':'EMPRESARIAL PROCESSOS DOCUMENTAIS','1':'EMPRESARIAL BPO FINANCEIRO','97':'EMPRESARIAL ASSESSORIA CONTABIL'};
-const blankDB = () => ({cash:[],titles:[],gl:[],drePlan:null,openings:{},splits:{},models:{},files:[],empMap:{...PRESET_MAP},plan:defaultPlanMap(),logo:null,theme:'auto'});
+const blankDB = () => ({cash:[],titles:[],gl:[],budget:null,drePlan:null,openings:{},splits:{},models:{},files:[],empMap:{...PRESET_MAP},plan:defaultPlanMap(),logo:null,theme:'auto'});
 let DB = blankDB();
-const UI = {emps:null, anos:null, meses:null, contas:null, base:todayISO(), mxDim:'cat', mxOpen:new Set(), mxAll:false, mxSearch:'',
+const UI = {orcMode:'dre', orcView:'mes', orcQ:'', orcOpen:new Set(), orcAll:false, ftCli:'', emps:null, anos:null, meses:null, contas:null, base:todayISO(), mxDim:'cat', mxOpen:new Set(), mxAll:false, mxSearch:'',
   ag:{R:{bucket:null,q:'',open:new Set()},P:{bucket:null,q:'',open:new Set()}}, showMatched:false, prDate:'prev', dreSeg:'none', dreQ:'', dreOpen:new Set(), dreAll:false, plMode:'fc', prOver:false, ftFut:false, view:'caixa', plShow:'mov', plQ:''};
 const charts={};
 
@@ -601,7 +621,7 @@ function parseCSV(txt){
   return Papa.parse(txt,{delimiter:';',header:true,skipEmptyLines:true,transformHeader:h=>h.trim().replace(/^"|"$/g,'')}).data;
 }
 /* leitor mínimo de .xlsx (primeira planilha), sem dependências */
-async function readXlsx(buf){
+async function openXlsx(buf){
   const u8=new Uint8Array(buf),dv=new DataView(buf);
   let eocd=-1;for(let i=u8.length-22;i>=Math.max(0,u8.length-66000);i--){if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}}
   if(eocd<0)throw new Error('arquivo xlsx inválido');
@@ -617,16 +637,27 @@ async function readXlsx(buf){
   const X=s=>new DOMParser().parseFromString(s,'application/xml');
   const ss=[];const sx=await get('xl/sharedStrings.xml');
   if(sx){for(const si of X(sx).getElementsByTagName('si')){let t='';for(const e of si.getElementsByTagName('t'))t+=e.textContent;ss.push(t);}}
-  let sheet='xl/worksheets/sheet1.xml';
-  try{const wb=X(await get('xl/workbook.xml'));const first=wb.getElementsByTagName('sheet')[0];const rid=first.getAttribute('r:id')||first.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');
-    const rels=X(await get('xl/_rels/workbook.xml.rels'));for(const r of rels.getElementsByTagName('Relationship'))if(r.getAttribute('Id')===rid){let t=r.getAttribute('Target');t=t.startsWith('/')?t.slice(1):'xl/'+t;if(files[t])sheet=t;}}catch(e){}
-  const doc=X(await get(sheet));const rows=[];
+  const sheets=[];
+  try{const wb=X(await get('xl/workbook.xml'));const rels=X(await get('xl/_rels/workbook.xml.rels'));const tgt={};
+    for(const r of rels.getElementsByTagName('Relationship')){let t=r.getAttribute('Target');t=t.startsWith('/')?t.slice(1):'xl/'+t;tgt[r.getAttribute('Id')]=t;}
+    for(const sh of wb.getElementsByTagName('sheet')){const rid=sh.getAttribute('r:id')||sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');if(tgt[rid]&&files[tgt[rid]])sheets.push({name:sh.getAttribute('name'),path:tgt[rid]});}}catch(e){}
+  if(!sheets.length)sheets.push({name:'Planilha1',path:'xl/worksheets/sheet1.xml'});
   const colIdx=ref=>{const m=ref.match(/^[A-Z]+/)[0];let c=0;for(const ch of m)c=c*26+ch.charCodeAt(0)-64;return c-1;};
-  for(const r of doc.getElementsByTagName('row')){const row=[];
-    for(const c of r.getElementsByTagName('c')){const t=c.getAttribute('t');const v=c.getElementsByTagName('v')[0];let val='';
-      if(t==='s')val=v?ss[+v.textContent]:'';else if(t==='inlineStr'){const is=c.getElementsByTagName('t');val=[...is].map(x=>x.textContent).join('');}else val=v?v.textContent:'';
-      row[colIdx(c.getAttribute('r'))]=val;}
-    rows.push(row);}
+  const cache={};
+  async function load(path){
+    const doc=X(await get(path));const rows=[];
+    for(const r of doc.getElementsByTagName('row')){const row=[];const ri=+r.getAttribute('r')||rows.length+1;
+      for(const c of r.getElementsByTagName('c')){const t=c.getAttribute('t');const v=c.getElementsByTagName('v')[0];let val='';
+        if(t==='s')val=v?ss[+v.textContent]:'';else if(t==='inlineStr'){const is=c.getElementsByTagName('t');val=[...is].map(x=>x.textContent).join('');}else val=v?v.textContent:'';
+        row[colIdx(c.getAttribute('r'))]=val;}
+      while(rows.length<ri-1)rows.push([]);rows.push(row);}
+    return rows;
+  }
+  for(const s of sheets)cache[s.name]=await load(s.path);
+  return {names:sheets.map(s=>s.name),sheet:n=>{if(!(n in cache))throw new Error('aba '+n+' não encontrada');return cache[n];},first:()=>cache[sheets[0].name]};
+}
+async function readXlsx(buf){
+  const book=await openXlsx(buf);const rows=book.first();
   // converte em objetos usando a primeira linha não vazia como cabeçalho
   const hi=rows.findIndex(r=>r&&r.filter(Boolean).length>=2);if(hi<0)return [];
   const head=rows[hi].map(h=>String(h||'').trim());
@@ -651,10 +682,15 @@ async function handleFiles(list){
   const msgs=[],parsed=[];
   for(const f of files){
     try{const buf=await f.arrayBuffer();
-      const rows=/\.xlsx$/i.test(f.name)?await readXlsx(buf):parseCSV(await readText(buf));
+      if(/\.xlsx$/i.test(f.name)){const book=await openXlsx(buf);
+        if(book.names.includes('Base Orçamento')){parsed.push({f,book,kind:'orcamento'});continue;}
+        const raw=book.first();const hi=raw.findIndex(r=>r&&r.filter(Boolean).length>=2);const head=hi<0?[]:raw[hi].map(h=>String(h||'').trim());
+        const rows=hi<0?[]:raw.slice(hi+1).filter(r=>r&&r.some(Boolean)).map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]??''])));
+        parsed.push({f,rows,kind:kindOf(rows,f.name)});continue;}
+      const rows=parseCSV(await readText(buf));
       parsed.push({f,rows,kind:kindOf(rows,f.name)});}catch(e){console.error(e);msgs.push(`${f.name}: não foi possível ler (${e.message})`);}
   }
-  const ord={plano:0,planodre:0,titulos:1,caixa:2,si:3,razao:4};
+  const ord={plano:0,planodre:0,titulos:1,caixa:2,si:3,razao:4,orcamento:5};
   parsed.sort((a,b)=>(ord[a.kind]??9)-(ord[b.kind]??9));
   for(const p of parsed){
     busy(true,`Processando ${p.f.name}…`);await new Promise(r=>setTimeout(r,20));
@@ -665,6 +701,7 @@ async function handleFiles(list){
       else if(p.kind==='plano')msgs.push(loadPlano(p.f.name,p.rows));
       else if(p.kind==='planodre')msgs.push(loadPlanoDre(p.f.name,p.rows));
       else if(p.kind==='razao')msgs.push(loadRazao(p.f.name,p.rows));
+      else if(p.kind==='orcamento')msgs.push(loadOrcamento(p.f.name,p.book));
       else msgs.push(`${p.f.name}: layout não reconhecido`);
     }catch(e){console.error(e);msgs.push(`${p.f.name}: erro ao processar (${e.message})`);}
   }
@@ -770,6 +807,7 @@ function deleteFile(name,kind){
   else if(kind==='titulos')DB.titles=DB.titles.filter(t=>t.src!==name);
   else if(kind==='si'){for(const f in DB.splits)if(DB.splits[f].src===name)delete DB.splits[f];for(const f in DB.openings)DB.openings[f]=DB.openings[f].filter(o=>o.src!==name);}
   else if(kind==='razao')DB.gl=(DB.gl||[]).filter(r=>r.src!==name);
+  else if(kind==='orcamento')DB.budget=null;
   else if(kind==='planodre'){const def=defaultDreMap();for(const k in DB.drePlan)if(DB.drePlan[k].file===name){if(def[k])DB.drePlan[k]=def[k];else delete DB.drePlan[k];}}
   else if(kind==='plano'){const def=defaultPlanMap();for(const k in DB.plan)if(DB.plan[k].file===name){if(def[k])DB.plan[k]=def[k];else delete DB.plan[k];}}
   DB.files=DB.files.filter(f=>!(f.name===name&&f.kind===kind));
@@ -1453,6 +1491,335 @@ function renderPlanoDre(){
     const c=tr.querySelector('[data-f=C]');if(c&&!c.value)c.value=cur.C;tr.classList.toggle('unc',!cur.A);tr.lastElementChild.innerHTML=cur.A?'<span class="tag m">Ajuste manual</span>':'<span class="tag u">Não classificada</span>';toast('Classificação salva.',1800);}));
 }
 
+
+/* ======================= ORÇAMENTO: leitura do arquivo ======================= */
+const MSER=v=>{const s=String(v??'').trim();if(!/^\d{5}(\.\d+)?$/.test(s))return null;const n=+s;if(n<40000||n>60000)return null;return ym(new Date(Date.UTC(1899,11,30)+Math.floor(n)*864e5).toISOString());};
+const BUD_SKIP=/^\(-\)|^novos clientes|m[ée]dia mensal|m[ée]dia dos|parcela vari[aá]vel/i;
+function loadOrcamento(name,book){
+  const raw=book.sheet('Base Orçamento');
+  const hi=raw.findIndex(r=>r&&String(r[0]||'').trim()==='Empresa');
+  if(hi<0)throw new Error('cabeçalho da aba Base Orçamento não encontrado');
+  const H=raw[hi].map(x=>String(x??'').trim());const col=n=>H.indexOf(n);
+  const lab=(raw[hi-1]||[]).map(x=>String(x??''));const cxStart=lab.findIndex(x=>/CAIXA/i.test(x));
+  const compCols=[],cxCols=[];
+  H.forEach((h,i)=>{const m=MSER(raw[hi][i]);if(!m)return;(cxStart>=0&&i>=cxStart?cxCols:compCols).push([i,m]);});
+  if(!compCols.length)throw new Error('colunas de meses não encontradas');
+  const C={emp:col('Empresa'),desc:col('Descrição'),cat:col('Categoria financeira'),conta:col('Conta contábil'),nconta:col('Descrição da conta'),aba:col('Aba de origem'),nat:col('Natureza'),
+    gD:col('Grupo DRE'),cD:col('Classificação DRE'),gF:col('Grupo FC'),cF:col('Classificação FC')};
+  const rows=[];let addFC=0,addDRE=0;DB.drePlan=DB.drePlan||defaultDreMap();
+  for(const r of raw.slice(hi+1)){
+    if(!r)continue;const emp=String(r[C.emp]??'').trim();if(!emp||emp==='0')continue;
+    const o={emp,desc:String(r[C.desc]??'').trim(),cat:String(r[C.cat]??'').trim(),conta:String(r[C.conta]??'').trim(),nconta:String(r[C.nconta]??'').trim(),aba:String(r[C.aba]??'').trim(),nat:String(r[C.nat]??'').trim(),c:{},x:{}};
+    let any=false;
+    for(const [i,m] of compCols){const v=parseNum(r[i]);if(Math.abs(v)>0.004){o.c[m]=(o.c[m]||0)+v;any=true;}}
+    for(const [i,m] of cxCols){const v=parseNum(r[i]);if(Math.abs(v)>0.004){o.x[m]=(o.x[m]||0)+v;any=true;}}
+    if(any)rows.push(o);
+    // categorias e contas que o orçamento usa e o dashboard ainda não classifica: adota a classificação do orçamento
+    const gF=String(r[C.gF]??'').trim(),cF=String(r[C.cF]??'').trim(),gD=String(r[C.gD]??'').trim(),cD=String(r[C.cD]??'').trim();
+    if(any&&o.cat&&gF&&!(DB.plan[norm(o.cat)]&&DB.plan[norm(o.cat)].grupo)){DB.plan[norm(o.cat)]={cat:o.cat,grupo:gF,classif:cF||gF,moeda:'Real',src:'importado',file:name};addFC++;}
+    if(any&&/^\d{8}$/.test(o.conta)&&gD&&!(DB.drePlan[o.conta]&&DB.drePlan[o.conta].A)){DB.drePlan[o.conta]={conta:o.conta,codic:'',nome:o.nconta,A:gD,C:cD||gD,B:'',src:'importado',file:name};addDRE++;}
+  }
+  DRE_CODIC=null;
+  // premissas de captação (ticket) e volumes da Processos Documentais
+  const tickets={};
+  try{for(const r of book.sheet('Premissas')){const l=String(r?.[1]??'');if(/^Qtd\. de novos clientes/i.test(l)){const e=/BPO/i.test(l)?'EMPRESARIAL BPO FINANCEIRO':/Assessoria/i.test(l)?'EMPRESARIAL ASSESSORIA CONTABIL':null;if(e)tickets[e]=parseNum(r[2]);}}}catch(e){}
+  const pdVol={};
+  try{const pr=book.sheet('Receitas PD');const h=pr.findIndex(r=>r&&r.some(v=>MSER(v)));
+    if(h>=0){const mc=[];pr[h].forEach((v,i)=>{const m=MSER(v);if(m&&!mc.some(x=>x[1]===m))mc.push([i,m]);});
+      for(const r of pr.slice(h+1))if(r&&/^Volume de servi/i.test(String(r[1]??'')))for(const [i,m] of mc)pdVol[m]=(pdVol[m]||0)+parseNum(r[i]);}}catch(e){}
+  const months=[...new Set(compCols.map(x=>x[1]).concat(cxCols.map(x=>x[1])))].sort();
+  DB.budget={file:name,at:new Date().toISOString(),months,rows,tickets,pdVol};
+  DB.files=DB.files.filter(f=>f.kind!=='orcamento');
+  DB.files.push({kind:'orcamento',name,rows:rows.length,min:months[0]+'-01',max:monthEnd(months[months.length-1]),at:DB.budget.at});
+  return `Orçamento: ${fInt.format(rows.length)} linhas de ${ymLabel(months[0])} a ${ymLabel(months[months.length-1])}${addFC||addDRE?` (classificação do orçamento adotada para ${addFC} categoria(s) e ${addDRE} conta(s) que não estavam nos planos do dashboard)`:''}`;
+}
+
+/* ======================= ORÇADO x REALIZADO ======================= */
+function realCashRows(){const emps=selEmps();return DB.cash.filter(r=>emps.has(r.emp)&&acctOk(r.emp,r.conta));}
+const lastGL=()=>{let m='';for(const r of (DB.gl||[]))if(r.d>m)m=r.d;return m;};
+const lastCash=()=>{let m='';for(const r of DB.cash)if(r.d>m)m=r.d;return m;};
+function budRows(){const emps=selEmps();return (DB.budget?.rows||[]).filter(r=>emps.has(r.emp));}
+function realFatRows(){const emps=selEmps();const lim=UI.ftFut?'9999-12-31':UI.base;return DB.titles.filter(t=>emps.has(t.emp)&&t.tipo==='R'&&t.cat.startsWith('Clientes - ')&&t.emis&&t.emis<=lim);}
+function budFat(rows,m){let s=0;for(const r of rows)if(r.cat.startsWith('Clientes - '))s+=r.c[m]||0;return s;}
+function budClients(rows,m){
+  const emps=[...new Set(rows.map(r=>r.emp))];let tot=0;
+  for(const e of emps){
+    const R=rows.filter(r=>r.emp===e&&r.cat.startsWith('Clientes - '));
+    if(/PROCESSOS/i.test(e)){tot+=DB.budget.pdVol[m]||0;continue;}
+    const rec=R.filter(r=>r.aba==='Receitas'&&!BUD_SKIP.test(r.desc)&&(r.c[m]||0)>0);
+    const recV=rec.reduce((a,r)=>a+r.c[m],0);let n=rec.length;
+    const ch=R.find(r=>/^\(-\) Perda/i.test(r.desc));if(ch&&recV>0)n-=rec.length*Math.abs(ch.c[m]||0)/recV;
+    const nv=R.find(r=>/^Novos clientes/i.test(r.desc));const tk=DB.budget.tickets[e];if(nv&&tk>0)n+=(nv.c[m]||0)/tk;
+    tot+=n;
+  }
+  return tot;
+}
+function orcCtx(){
+  const B=DB.budget;if(!B)return null;
+  const months=selMonths(B.months[0]+'-01',B.months[B.months.length-1]+'-01');
+  const gl=lastGL(),cs=lastCash();
+  let fc='';for(const t of DB.titles){const d=brDate(t.inc);if(d>fc)fc=d;} if(!fc||fc>UI.base)fc=UI.base;
+  // "avail": há realizado (mesmo parcial) para exibir; "comp": mês completo, entra nos acumulados e na análise
+  const mk=cut=>({show:m=>!!cut&&m+'-01'<=cut,comp:m=>!!cut&&monthEnd(m)<=cut});
+  const D_=mk(gl),C_=mk(cs),F_=mk(fc);
+  return {months,availDRE:D_.comp,availFC:C_.comp,availFAT:F_.comp,showDRE:D_.show,showFC:C_.show,showFAT:F_.show,gl,cs,fc};
+}
+/* árvore com orçado (b) e realizado (a) por mês */
+function treeAdd(root,path,m,kind,v){
+  let n=root;
+  for(const p of path){const k=p.k;if(!n.kids.has(k))n.kids.set(k,{k,l:p.l,b:{},a:{},kids:new Map()});n=n.kids.get(k);n[kind][m]=(n[kind][m]||0)+v;}
+}
+function buildOrcTree(mode,ctx){
+  const root={kids:new Map()};const ms=new Set(ctx.months);
+  const P=(k,l)=>({k:norm(k)||'-',l});
+  if(mode==='dre'){
+    for(const r of budRows()){
+      if(!/^\d{8}$/.test(r.conta))continue;const c=dreClass({clasc:r.conta});
+      for(const [m,v] of Object.entries(r.c)){if(!ms.has(m))continue;
+        treeAdd(root,[P(c.A,c.A),P(c.A+'|'+(c.C||c.A),c.C||c.A),{k:r.conta,l:`${r.conta} | ${r.nconta||(DB.drePlan?.[r.conta]?.nome)||''}`},P(r.desc,r.desc)],m,'b',v);}
+    }
+    for(const r of dreRows()){if(!ms.has(r._m))continue;const s=r.cp||cleanHist(r.h);
+      treeAdd(root,[P(r._A,r._A),P(r._A+'|'+r._C,r._C),{k:r.clasc,l:`${r.clasc} | ${r.nomec}`},P(s,s)],r._m,'a',r.v);}
+  }else{
+    for(const r of budRows()){
+      const c=classify(r.cat);
+      for(const [m,v] of Object.entries(r.x)){if(!ms.has(m))continue;
+        treeAdd(root,[P(c.grupo,c.grupo),P(c.grupo+'|'+c.classif,c.classif),P(r.cat,r.cat),P(r.desc,r.desc)],m,'b',v);}
+    }
+    const emps=selEmps();
+    for(const r of realCashRows()){const m=ym(r.d);if(!ms.has(m))continue;
+      const c=classify(r.cat);treeAdd(root,[P(c.grupo,c.grupo),P(c.grupo+'|'+c.classif,c.classif),P(r.cat,r.cat),P(r.cf,r.cf)],m,'a',r.v);}
+  }
+  return root;
+}
+const vcls=(v)=>Math.abs(v)<0.5?'zero':v>0?'pos':'neg';
+function renderOrc(){
+  const el=$('#orcBody');
+  if(!DB.budget){el.innerHTML=`<div class="empty"><h2>Carregue o orçamento</h2><p>Use o botão “Carregar bases” e selecione o arquivo Excel do orçamento (com a aba <b>Base Orçamento</b>). Para ajustar, edite o Excel e carregue de novo: a versão anterior é substituída.</p><button class="btn primary" type="button" onclick="document.getElementById('fileIn').click()">Selecionar arquivo</button></div>`;
+    ['ob1','ob2','ob3'].forEach(k=>{if(charts[k]){charts[k].destroy();charts[k]=null;}});return;}
+  const ctx=orcCtx();const {months}=ctx;
+  if(!months.length){el.innerHTML='<p class="muted">Nenhum mês do orçamento no ano e mês selecionados. Ajuste o filtro de período (o orçamento vai de '+ymLabel(DB.budget.months[0])+' a '+ymLabel(DB.budget.months[DB.budget.months.length-1])+').</p>';return;}
+  if(!el.dataset.built){el.innerHTML=ORC_HTML;el.dataset.built='1';bindOrc();}
+  const emps=selEmps();
+  $('#orcSub').textContent=`Orçamento: ${DB.budget.file} (carregado em ${new Date(DB.budget.at).toLocaleString('pt-BR')}) | ${periodLabel(months)} | ${emps.size===allEmps().length?'Consolidado':[...emps].map(coShort).join(', ')}. Realizado disponível: DRE até ${ctx.gl?fmtD(ctx.gl):'–'}, caixa até ${ctx.cs?fmtD(ctx.cs):'–'}.`;
+  // ---- KPIs (meses comparáveis)
+  const bR=budRows(),fr=realFatRows();
+  const sumB=(fn,avail)=>months.filter(avail).reduce((a,m)=>a+fn(m),0);
+  const cmF=months.filter(ctx.availFAT),cmD=months.filter(ctx.availDRE),cmC=months.filter(ctx.availFC);
+  const fatR=m=>fr.filter(t=>ym(t.emis)===m).reduce((a,t)=>a+t.valor,0);
+  const dreB=(m,f)=>bR.filter(r=>/^\d{8}$/.test(r.conta)&&f(dreClass({clasc:r.conta}))).reduce((a,r)=>a+(r.c[m]||0),0);
+  const gl=dreRows();const dreA=(m,f)=>gl.filter(r=>r._m===m&&f({A:r._A,C:r._C})).reduce((a,r)=>a+r.v,0);
+  const g1=c=>gNum(c.A)===1,g12=c=>gNum(c.A)<=2,all=()=>true;
+  const cashB=m=>bR.reduce((a,r)=>a+(r.x[m]||0),0);
+  const CR=realCashRows();const cashA=m=>CR.reduce((a,r)=>a+(ym(r.d)===m?r.v:0),0);
+  const K=[['Faturamento',m=>budFat(bR,m),fatR,cmF],['Receita líquida',m=>dreB(m,g1),m=>dreA(m,g1),cmD],['EBITDA',m=>dreB(m,g12),m=>dreA(m,g12),cmD],
+           ['Lucro líquido',m=>dreB(m,all),m=>dreA(m,all),cmD],['Geração de caixa',cashB,cashA,cmC]];
+  $('#orcKpi').innerHTML=K.map(([l,fb,fa,cm],i)=>{const b=cm.reduce((a,m)=>a+fb(m),0),a=cm.reduce((s,m)=>s+fa(m),0);const v=a-b;
+    const bp=months.reduce((s,m)=>s+fb(m),0);
+    return `<div class="cell ${i===0?'hero':''}"><div class="k">${l}</div><div class="v num">${cm.length?brl(a):'–'}</div><div class="d">${cm.length?'Orçado '+brl(b):'Orçado no período '+brl(bp)}${cm.length?` | <b class="${vcls(v)}">${sgn(v)}${fK(v)} (${pctS(dpct(a,b))})</b>`:''}</div><div class="d">${cm.length?`${cm.length} mês(es) fechado(s): ${ymLabel(cm[0])}${cm.length>1?' a '+ymLabel(cm[cm.length-1]):''}`:'Sem mês fechado com realizado'}</div></div>`;}).join('');
+  // ---- gráficos
+  const lab=months.map(ymLabel);
+  const fB=months.map(m=>budFat(bR,m)),fA=months.map(m=>ctx.showFAT(m)?fatR(m):null);
+  const cB=months.map(m=>budClients(bR,m));
+  const cA=months.map(m=>{if(!ctx.showFAT(m))return null;const s=new Set();for(const t of fr)if(ym(t.emis)===m)s.add(t.doc?t.doc.replace(/\D/g,''):'N:'+t.nome.toUpperCase());return s.size;});
+  const tB=months.map((m,i)=>cB[i]?fB[i]/cB[i]:null),tA=months.map((m,i)=>cA[i]?fA[i]/cA[i]:null);
+  const draw=(id,key,dsB,dsA,isMoney,type)=>{if(charts[key])charts[key].destroy();const o=baseChartOpts();
+    if(!isMoney){o.scales.y.ticks.callback=v=>fInt.format(v);o.plugins.tooltip.callbacks.label=c=>' '+c.dataset.label+': '+(c.parsed.y==null?'–':c.parsed.y.toLocaleString('pt-BR',{maximumFractionDigits:0}));}
+    if(isMoney)o.scales.y.ticks.callback=v=>'R$ '+compact(v);
+    o.plugins.tooltip.callbacks.footer=items=>{const i=items[0].dataIndex;if(dsA[i]==null||!dsB[i])return '';const v=dsA[i]-dsB[i];const m=months[i];const part=!ctx.availFAT(m)?' | mês parcial (dados até '+fmtD(ctx.fc)+')':'';return `Variação: ${isMoney?brl(v):v.toLocaleString('pt-BR',{maximumFractionDigits:0})} (${pctS(dpct(dsA[i],dsB[i]))})${part}`;};
+    const ds=type==='line'?[{type:'line',label:'Orçado',data:dsB,borderColor:cssv('--ink-3'),backgroundColor:cssv('--ink-3'),borderDash:[5,4],pointRadius:2,tension:.2},{type:'line',label:'Realizado',data:dsA,borderColor:cssv('--brand-2'),backgroundColor:cssv('--brand-2'),pointRadius:3,tension:.2}]
+      :[{label:'Orçado',data:dsB,backgroundColor:cssv('--line-strong'),borderRadius:3,maxBarThickness:26},{label:'Realizado',data:dsA,backgroundColor:cssv('--brand-2'),borderRadius:3,maxBarThickness:26}];
+    charts[key]=new Chart($(id),{type:type==='line'?'line':'bar',data:{labels:lab,datasets:ds},options:o});};
+  draw('#chOb1','ob1',fB,fA,true,'bar');
+  $('#orcFatNote').textContent=months.some(m=>ctx.showFAT(m)&&!ctx.availFAT(m))?`Meses parciais: o realizado considera os títulos lançados até ${fmtD(ctx.fc)} (data da base de títulos).`:'';draw('#chOb2','ob2',cB.map(v=>v==null?null:Math.round(v*10)/10),cA,false,'bar');draw('#chOb3','ob3',tB,tA,true,'line');
+  renderOrcMatrix(ctx);
+  renderOrcInsights(ctx,{bR,fr,fatR,cmF,cmD,cmC,cashB,cashA,dreB,dreA,g1,g12,all,cB,cA,fB,fA});
+}
+const ORC_HTML=`
+  <div class="panel ledger" id="orcKpi"></div>
+  <div class="section-h"><div><h2>Faturamento, clientes faturados e ticket médio</h2><div class="sub">Realizado: mesma base da aba Faturamento (títulos das categorias “Clientes - ” pela emissão). Clientes orçados: carteira recorrente com valor no mês, captação e churn; Processos Documentais pelo volume de serviços</div></div></div>
+  <div class="grid g3"><div class="panel"><div class="panel-h"><h3>Faturamento</h3></div><div class="panel-b"><div class="chart"><canvas id="chOb1"></canvas></div></div></div>
+    <div class="panel"><div class="panel-h"><h3>Clientes faturados</h3></div><div class="panel-b"><div class="chart"><canvas id="chOb2"></canvas></div></div></div>
+    <div class="panel"><div class="panel-h"><h3>Ticket médio</h3></div><div class="panel-b"><div class="chart"><canvas id="chOb3"></canvas></div></div></div></div>
+  <div class="note" id="orcFatNote"></div>
+  <div class="section-h"><div><h2>Matriz orçado x realizado</h2><div class="sub" id="orcMxSub"></div></div>
+    <div class="tools"><div class="seg" id="orcMode"><button type="button" aria-pressed="true" data-m="dre">DRE</button><button type="button" aria-pressed="false" data-m="fc">Fluxo de caixa</button></div>
+      <div class="seg" id="orcView"><button type="button" aria-pressed="true" data-m="mes">Mês a mês</button><button type="button" aria-pressed="false" data-m="acum">Só acumulado</button></div>
+      <input type="search" id="orcSearch" placeholder="Filtrar conta, categoria ou fornecedor"><button class="btn" type="button" id="orcExpand">Expandir tudo</button><button class="btn" type="button" id="orcCsv">Exportar CSV</button></div></div>
+  <div class="tablewrap" id="orcWrap"></div>
+  <div class="note">Variação = realizado − orçado. Como despesas são negativas, variação positiva é sempre favorável ao resultado ou ao caixa. Meses sem realizado aparecem com “–”; meses parciais aparecem com o realizado até a data da base, mas ficam fora do acumulado. O realizado usa exatamente a mesma base das abas Fluxo de Caixa, DRE contábil e Faturamento, inclusive o filtro de conta corrente.</div>
+  <div class="section-h"><div><h2>Análise das variações</h2><div class="sub" id="orcInsSub"></div></div></div>
+  <div class="grid g2"><div class="panel" id="orcInsM"></div><div class="panel" id="orcInsA"></div></div>`;
+let ORCX=null;
+function bindOrc(){
+  $('#orcMode').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.orcMode=b.dataset.m;UI.orcOpen.clear();$('#orcMode').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
+  $('#orcView').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.orcView=b.dataset.m;$('#orcView').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
+  $('#orcSearch').oninput=e=>{UI.orcQ=e.target.value;clearTimeout(e.target._t);e.target._t=setTimeout(render,250);};
+  $('#orcExpand').onclick=()=>{UI.orcAll=!UI.orcAll;if(!UI.orcAll)UI.orcOpen.clear();render();};
+  $('#orcWrap').onclick=e=>{const b=e.target.closest('.tg[data-id]');if(!b)return;const id=b.dataset.id;
+    if(UI.orcAll){UI.orcAll=false;document.querySelectorAll('#orcWrap .tg[data-id]').forEach(x=>{if(x.getAttribute('aria-expanded')==='true')UI.orcOpen.add(x.dataset.id);});}
+    UI.orcOpen.has(id)?UI.orcOpen.delete(id):UI.orcOpen.add(id);render();};
+  $('#orcCsv').onclick=()=>{if(!ORCX)return;const txt='\uFEFF'+ORCX.map(r=>r.map((c,i)=>i<2?'"'+String(c).replace(/"/g,'""')+'"':String(c).replace('.',',')).join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));a.download=`orcado_x_realizado_${UI.orcMode}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);};
+}
+function renderOrcMatrix(ctx){
+  const mode=UI.orcMode||'dre',acum=UI.orcView==='acum';const {months}=ctx;
+  const avail=mode==='dre'?ctx.showDRE:ctx.showFC;const comp=mode==='dre'?ctx.availDRE:ctx.availFC;const cm=months.filter(comp);
+  const root=buildOrcTree(mode,ctx);
+  $('#orcMxSub').textContent=mode==='dre'?'Grupo › Classificação › Conta contábil › Fornecedor/cliente (realizado pelo histórico do razão; orçado pela linha do orçamento)':'Grupo › Classificação › Categoria › Cliente/fornecedor';
+  const q=(UI.orcQ||'').trim().toLowerCase();const matches=n=>n.l.toLowerCase().includes(q)||[...n.kids.values()].some(matches);
+  const sB=(n,ms)=>ms.reduce((a,m)=>a+(n.b[m]||0),0),sA=(n,ms)=>ms.reduce((a,m)=>a+(n.a[m]||0),0);
+  const cell=(v,cls='')=>`<td class="num ${cls} ${Math.abs(v||0)<0.005?'zero':''}">${n2(v||0)}</td>`;
+  const varCell=v=>`<td class="num ${vcls(v)}">${n2(v)}</td>`;
+  const tot=(o)=>{const b=sB(o,cm),a=sA(o,cm),v=a-b;return `${cell(sB(o,months),'tot')}${cell(b,'tot')}${cell(a,'tot')}<td class="num tot ${vcls(v)}">${n2(v)}</td><td class="num tot ${vcls(v)}">${Math.abs(b)>0.5?pctS(v/Math.abs(b)):'–'}</td>`;};
+  const mcells=o=>acum?'':months.map(m=>{const b=o.b[m]||0;if(!avail(m))return `${cell(b)}<td class="num zero">–</td><td class="num zero">–</td>`;const a=o.a[m]||0;return `${cell(b)}${cell(a)}${varCell(a-b)}`;}).join('');
+  const csv=[['Linha','Nível',...(acum?[]:months.flatMap(m=>[ymLabel(m)+' Orç',ymLabel(m)+' Real',ymLabel(m)+' Var'])),'Orçado período','Orçado comparável','Realizado','Variação']];
+  const csvRow=(l,lv,o)=>csv.push([l,lv,...(acum?[]:months.flatMap(m=>[(o.b[m]||0).toFixed(2),avail(m)?(o.a[m]||0).toFixed(2):'',avail(m)?((o.a[m]||0)-(o.b[m]||0)).toFixed(2):''])),sB(o,months).toFixed(2),sB(o,cm).toFixed(2),sA(o,cm).toFixed(2),(sA(o,cm)-sB(o,cm)).toFixed(2)]);
+  const tog=(id,open,l)=>`<button type="button" class="tg" data-id="${esc(id)}" aria-expanded="${open}" aria-label="Detalhar ${esc(l)}"><svg viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>`;
+  const LV=mode==='dre'?['Grupo','Classificação','Conta','Fornecedor/cliente']:['Grupo','Classificação','Categoria','Cliente/fornecedor'];
+  let body='';
+  function walk(n,depth,id){
+    const kids=[...n.kids.values()].sort((a,b)=>depth===0?(mode==='dre'?(DRE_POS[gNum(a.l)]||6)-(DRE_POS[gNum(b.l)]||6):a.l.localeCompare(b.l)):(Math.abs(sB(b,months))+Math.abs(sA(b,cm)))-(Math.abs(sB(a,months))+Math.abs(sA(a,cm))));
+    for(const k of kids){const kid=id+'›'+k.k;csvRow('  '.repeat(depth)+k.l,LV[depth],k);
+      if(q&&!matches(k))continue;
+      const has=k.kids.size>0;const open=has&&(UI.orcAll||UI.orcOpen.has(kid)||(q&&[...k.kids.values()].some(matches)));
+      body+=`<tr class="${depth===0?'grp0':'lv'+depth}"><td title="${esc(k.l)}">${has?tog(kid,open,k.l):'<span class="tg"></span>'}${esc(k.l)}</td>${mcells(k)}${tot(k)}</tr>`;
+      if(open)walk(k,depth+1,kid);}
+  }
+  const groups=[...root.kids.values()];
+  const agg=(list)=>{const o={b:{},a:{}};for(const g of list)for(const m of months){o.b[m]=(o.b[m]||0)+(g.b[m]||0);o.a[m]=(o.a[m]||0)+(g.a[m]||0);}return o;};
+  const sub=(label,o,cls='sub')=>{body+=`<tr class="${cls}"><td>${label}</td>${mcells(o)}${tot(o)}</tr>`;csvRow(label,'Subtotal',o);};
+  if(mode==='dre'){
+    const pos=g=>DRE_POS[gNum(g.l)]||6;const sorted=groups.sort((a,b)=>pos(a)-pos(b));const acc=[];let dE=false,dO=false;
+    for(const g of sorted){
+      if(!dE&&pos(g)>2){sub('EBITDA',agg(acc));dE=true;}
+      if(!dO&&pos(g)>3){sub('Resultado operacional (EBIT)',agg(acc));dO=true;}
+      walk({kids:new Map([[g.k,g]])},0,'');acc.push(g);
+    }
+    if(!dE)sub('EBITDA',agg(acc));if(!dO)sub('Resultado operacional (EBIT)',agg(acc));
+    sub('Lucro líquido',agg(acc),'key');
+  }else{
+    walk(root,0,'');sub('Geração de caixa do período',agg(groups),'key');
+  }
+  const head1=`<tr><th rowspan="2">${mode==='dre'?'DRE':'Fluxo de caixa'}</th>${acum?'':months.map(m=>`<th colspan="3" class="mh ${avail(m)?'':'na'}">${ymLabel(m)}${avail(m)&&!comp(m)?' (parcial)':''}</th>`).join('')}<th colspan="5" class="tot">Acumulado${cm.length?` dos meses fechados (${ymLabel(cm[0])}${cm.length>1?' a '+ymLabel(cm[cm.length-1]):''})`:' (sem realizado)'}</th></tr>`;
+  const head2=`<tr class="h2">${acum?'':months.map(()=>'<th>Orç.</th><th>Real</th><th>Var.</th>').join('')}<th class="tot">Orçado período</th><th class="tot">Orçado comp.</th><th class="tot">Realizado</th><th class="tot">Var. R$</th><th class="tot">Var. %</th></tr>`;
+  $('#orcWrap').innerHTML=`<table class="mx orc"><thead>${head1}${head2}</thead><tbody>${body}</tbody></table>`;
+  ORCX=csv;$('#orcExpand').textContent=UI.orcAll?'Recolher tudo':'Expandir tudo';
+}
+function renderOrcInsights(ctx,K){
+  const {months}=ctx;const {bR,fr,fatR,cmF,cmD,cmC}=K;
+  const lastM=[...cmD].pop()||[...cmF].pop();
+  $('#orcInsSub').textContent=lastM?`Mês de referência: ${MESL[+lastM.slice(5)-1]} de ${lastM.slice(0,4)} (último com realizado contábil ou de faturamento). Acumulado: meses comparáveis do período selecionado.`:'';
+  if(!cmF.length&&!cmD.length&&!cmC.length){
+    const msg=`<div class="panel-b" style="padding-top:16px"><p class="muted">Ainda não há mês fechado com realizado no período do orçamento selecionado (razão até ${ctx.gl?fmtD(ctx.gl):'–'}, extrato até ${ctx.cs?fmtD(ctx.cs):'–'}, títulos até ${fmtD(ctx.fc)}). Assim que as bases de ${ymLabel(months[0])} em diante forem carregadas (razão contábil, extrato de fluxo de caixa e títulos), as variações aparecem aqui.</p></div>`;
+    $('#orcInsM').innerHTML=msg;$('#orcInsA').innerHTML='';$('#orcInsA').hidden=true;return;}
+  $('#orcInsA').hidden=false;
+  const build=(ms,title)=>{
+    const out=[];const msD=ms.filter(ctx.availDRE),msF=ms.filter(ctx.availFAT),msC=ms.filter(ctx.availFC);
+    // faturamento: ponte volume x ticket e clientes
+    if(msF.length){
+      const fb=msF.reduce((a,m)=>a+budFat(bR,m),0),fa=msF.reduce((a,m)=>a+fatR(m),0);
+      const cb=msF.reduce((a,m)=>a+budClients(bR,m),0)/msF.length;
+      const ca=msF.reduce((a,m)=>{const s=new Set();for(const t of fr)if(ym(t.emis)===m)s.add(t.doc?t.doc.replace(/\D/g,''):'N:'+t.nome.toUpperCase());return a+s.size;},0)/msF.length;
+      const tb=cb?fb/msF.length/cb:0,ta=ca?fa/msF.length/ca:0;const vol=(ca-cb)*tb*msF.length,tic=(ta-tb)*ca*msF.length;const v=fa-fb;
+      out.push({tone:v>=0?'up':'dn',txt:`<b>Faturamento</b> de ${fK(fa)} contra ${fK(fb)} orçados (${sgn(v)}${fK(v)}, ${pctS(dpct(fa,fb))}). Média de ${ca.toLocaleString('pt-BR',{maximumFractionDigits:0})} clientes faturados por mês (orçado ${cb.toLocaleString('pt-BR',{maximumFractionDigits:0})}) e ticket de ${fK(ta)} (orçado ${fK(tb)}): efeito volume ${sgn(vol)}${fK(vol)} e efeito ticket ${sgn(tic)}${fK(tic)}.`});
+      // clientes acima/abaixo do orçado
+      const bud=new Map(),real=new Map();
+      for(const r of bR)if(r.cat.startsWith('Clientes - ')&&r.aba==='Receitas'&&!BUD_SKIP.test(r.desc)){const k=norm(r.desc);const o=bud.get(k)||{n:r.desc,v:0};o.v+=msF.reduce((a,m)=>a+(r.c[m]||0),0);bud.set(k,o);}
+      for(const t of fr)if(msF.includes(ym(t.emis))){const k=norm(t.nome);const o=real.get(k)||{n:t.nome,v:0};o.v+=t.valor;real.set(k,o);}
+      const lost=[...bud.entries()].filter(([k,o])=>o.v>0&&!real.has(k)).sort((a,b)=>b[1].v-a[1].v);
+      const fresh=[...real.entries()].filter(([k,o])=>!bud.has(k)).sort((a,b)=>b[1].v-a[1].v);
+      const diff=[...bud.entries()].filter(([k])=>real.has(k)).map(([k,o])=>({n:o.n,d:real.get(k).v-o.v})).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).filter(x=>Math.abs(x.d)>=200);
+      if(lost.length)out.push({tone:'wa',txt:`<b>${lost.length} cliente(s) orçado(s) sem faturamento</b> no período, somando ${fK(lost.reduce((a,x)=>a+x[1].v,0))}: ${joinPt(lost.slice(0,3).map(([k,o])=>`${esc(o.n)} (${fK(o.v)})`))}. Verifique cancelamento, atraso na emissão ou mudança de razão social.`});
+      if(fresh.length)out.push({tone:'up',txt:`<b>${fresh.length} cliente(s) faturado(s) fora da carteira orçada</b>, somando ${fK(fresh.reduce((a,x)=>a+x[1].v,0))} (captação, serviços avulsos ou extras): ${joinPt(fresh.slice(0,3).map(([k,o])=>`${esc(o.n)} (${fK(o.v)})`))}.`});
+      if(diff.length)out.push({tone:'nt',txt:`Maiores diferenças em clientes da carteira: ${joinPt(diff.slice(0,4).map(x=>`${esc(x.n)} (${sgn(x.d)}${fK(x.d)})`))}. Diferenças recorrentes podem indicar reajuste diferente do previsto ou mudança de escopo.`});
+    }
+    // DRE
+    if(msD.length){
+      const b=f=>msD.reduce((a,m)=>a+K.dreB(m,f),0),a=f=>msD.reduce((s,m)=>s+K.dreA(m,f),0);
+      const ebB=b(K.g12),ebA=a(K.g12),llB=b(K.all),llA=a(K.all),rlB=b(K.g1),rlA=a(K.g1);
+      out.push({tone:llA>=llB?'up':'dn',txt:`<b>Lucro líquido</b> de ${fK(llA)} contra ${fK(llB)} orçados (${pctS(dpct(llA,llB))}); EBITDA de ${fK(ebA)} (orçado ${fK(ebB)}), margem de ${pctV(rlA?ebA/rlA:null)} contra ${pctV(rlB?ebB/rlB:null)} orçada.`});
+      const tree=buildOrcTree('dre',{...ctx,months:msD});
+      out.push(...topVar(tree,msD,'dre'));
+    }
+    if(msC.length){
+      const cbv=msC.reduce((a,m)=>a+K.cashB(m),0),cav=msC.reduce((a,m)=>a+K.cashA(m),0);
+      const partial=ctx.cs&&ctx.cs<monthEnd(msC[msC.length-1]);
+      out.push({tone:cav>=cbv?'up':'dn',txt:`<b>Geração de caixa</b> de ${fK(cav)} contra ${fK(cbv)} orçados (${sgn(cav-cbv)}${fK(cav-cbv)}).${partial?` Atenção: o extrato vai até ${fmtD(ctx.cs)}, então ${ymLabel(msC[msC.length-1])} ainda está parcial.`:''}`});
+      const tree=buildOrcTree('fc',{...ctx,months:msC});
+      out.push(...topVar(tree,msC,'fc').slice(0,4));
+    }
+    return out;
+  };
+  const panel=(t,s,items)=>`<div class="panel-h"><div><h3>${t}</h3><div class="sub">${s}</div></div></div><div class="panel-b">${insList(items)}</div>`;
+  $('#orcInsM').innerHTML=lastM?panel(`Mês: ${ymLabel(lastM)}`,'Realizado contra o orçado do mês',build([lastM])):'';
+  const allM=months.filter(m=>ctx.availFAT(m)||ctx.availDRE(m)||ctx.availFC(m));
+  $('#orcInsA').innerHTML=panel(`Acumulado: ${allM.length?ymLabel(allM[0])+(allM.length>1?' a '+ymLabel(allM[allM.length-1]):''):'–'}`,'Meses comparáveis do período selecionado',build(allM));
+}
+function topVar(root,ms,mode){
+  // variações por classificação (nível 1) com os principais motivos (nível 3: fornecedor/cliente)
+  const out=[];const items=[];
+  for(const g of root.kids.values())for(const c of g.kids.values()){
+    const b=ms.reduce((a,m)=>a+(c.b[m]||0),0),a=ms.reduce((s,m)=>s+(c.a[m]||0),0);items.push({g,c,b,a,v:a-b});}
+  const ref=Math.max(...items.map(x=>Math.abs(x.b)),1);const thr=Math.max(300,ref*0.02);
+  for(const x of items.filter(x=>Math.abs(x.v)>=thr).sort((p,q)=>Math.abs(q.v)-Math.abs(p.v)).slice(0,5)){
+    const sum=(n,k)=>ms.reduce((a,m)=>a+(n[k][m]||0),0);
+    const lv2=[...x.c.kids.values()].map(k2=>({l:mode==='dre'?k2.l.replace(/^\d+ \| /,''):k2.l,b:sum(k2,'b'),a:sum(k2,'a'),n:k2})).map(o=>({...o,v:o.a-o.b}));
+    const drv=lv2.filter(l=>Math.sign(l.v)===Math.sign(x.v)&&Math.abs(l.v)>=thr/4).sort((p,q)=>Math.abs(q.v)-Math.abs(p.v)).slice(0,3);
+    // fornecedores/clientes presentes nos dois lados (orçado e realizado) dentro das contas que explicam a variação
+    const matched=[];for(const d of drv)for(const k3 of d.n.kids.values()){const b=sum(k3,'b'),a=sum(k3,'a');if(Math.abs(b)>0.5&&Math.abs(a)>0.5&&Math.abs(a-b)>=thr/4)matched.push({l:k3.l,v:a-b});}
+    matched.sort((p,q)=>Math.abs(q.v)-Math.abs(p.v));
+    const inflow=(x.b+x.a)>=0;const fav=x.v>0;
+    let txt=`<b>${esc(x.c.l)}</b> ${inflow?(fav?'acima':'abaixo'):(fav?'abaixo':'acima')} do orçado em ${fK(x.v)} (realizado ${fK(x.a)}, orçado ${fK(x.b)})`;
+    if(drv.length)txt+=', principalmente em '+joinPt(drv.map(l=>`${esc(l.l)} (${sgn(l.v)}${fK(l.v)}${Math.abs(l.b)<0.5?', não orçado':Math.abs(l.a)<0.5?', sem realizado':''})`));
+    txt+='.';
+    if(matched.length)txt+=` Por ${mode==='dre'?'fornecedor/cliente':'cliente/fornecedor'}: ${joinPt(matched.slice(0,3).map(l=>`${esc(l.l)} (${sgn(l.v)}${fK(l.v)})`))}.`;
+    out.push({tone:fav?'up':'dn',txt});
+  }
+  return out;
+}
+
+/* ======================= HISTÓRICO DE FATURAMENTO POR CLIENTE ======================= */
+function cliKey(t){return t.doc?t.doc.replace(/\D/g,''):'N:'+norm(t.nome);}
+function renderCliHist(){
+  const emps=selEmps();
+  const all=DB.titles.filter(t=>emps.has(t.emp)&&t.tipo==='R'&&t.cat.startsWith('Clientes - ')&&t.emis);
+  const opts=new Map();for(const t of all){const k=cliKey(t);if(!opts.has(k))opts.set(k,t.nome+(t.doc?` (${t.doc})`:''));}
+  const dl=$('#dlCli');if(dl&&dl.dataset.n!==String(opts.size)){dl.innerHTML=[...opts.values()].sort().map(v=>`<option value="${esc(v)}">`).join('');dl.dataset.n=String(opts.size);}
+  const box=$('#ftCliBox');const q=(UI.ftCli||'').trim();
+  if(!q){box.innerHTML='';box.hidden=true;if(charts.ch){charts.ch.destroy();charts.ch=null;}return;}
+  const nq=norm(q.replace(/\(.*\)$/,''));const dq=q.replace(/\D/g,'');
+  let keys=[...opts.entries()].filter(([k,l])=>norm(l.replace(/\(.*\)$/,''))===nq||(dq.length>=11&&k===dq)).map(x=>x[0]);
+  if(!keys.length)keys=[...opts.entries()].filter(([k,l])=>norm(l).includes(nq)||(dq.length>=4&&k.includes(dq))).map(x=>x[0]);
+  box.hidden=false;
+  if(!keys.length){box.innerHTML='<div class="panel-b" style="padding:16px"><p class="muted">Nenhum cliente encontrado com esse nome ou CNPJ/CPF.</p></div>';return;}
+  const ks=new Set(keys);const L=all.filter(t=>ks.has(cliKey(t))).sort((a,b)=>a.emis<b.emis?-1:1);
+  const names=[...new Set(L.map(t=>t.nome))];
+  const mn=L[0].emis,mx=L[L.length-1].emis;const months=monthsBetween(ym(mn),ym(mx));
+  const byM={};for(const t of L){const m=ym(t.emis);byM[m]=(byM[m]||0)+t.valor;}
+  const tot=L.reduce((a,t)=>a+t.valor,0);const billed=months.filter(m=>byM[m]>0);
+  const last12=monthsBetween(prevMonth(ym(UI.base),11),ym(UI.base));const avg12=last12.reduce((a,m)=>a+(byM[m]||0),0)/12;
+  const open=L.filter(t=>t.aberto>0.004&&!PAID.test(t.sit)).reduce((a,t)=>a+t.aberto,0);
+  const late=L.filter(t=>t.pag&&t.pagoV>0).map(t=>diffDays(t.pag,t.venc));const pont=late.length?late.filter(d=>d<=0).length/late.length:null;
+  // orçado do cliente
+  const bud={};if(DB.budget)for(const r of budRows())if(r.cat.startsWith('Clientes - ')&&names.some(n=>norm(n)===norm(r.desc)))for(const [m,v] of Object.entries(r.c))bud[m]=(bud[m]||0)+v;
+  const chartM=[...new Set(months.concat(Object.keys(bud)))].sort();
+  box.innerHTML=`<div class="panel-h"><div><h3>${esc(names.join(' / '))}</h3><div class="sub">${[...new Set(L.map(t=>coShort(t.emp)))].join(', ')} | ${[...new Set(L.map(t=>t.cat))].join(', ')}${L[0].doc?' | '+esc(L[0].doc):''}</div></div><button class="btn sm" type="button" id="ftCliClose">Fechar</button></div>
+   <div class="panel-b"><div class="kpis" style="grid-template-columns:repeat(6,minmax(0,1fr))">
+    <div class="kpi"><div class="k">Total faturado (histórico)</div><div class="v num">${brl(tot)}</div></div>
+    <div class="kpi"><div class="k">Média mensal (últimos 12 meses)</div><div class="v num">${brl(avg12)}</div></div>
+    <div class="kpi"><div class="k">Meses faturados</div><div class="v num">${billed.length} de ${months.length}</div></div>
+    <div class="kpi"><div class="k">Primeiro e último faturamento</div><div class="v num" style="font-size:14px">${fmtD(mn)} a ${fmtD(mx)}</div></div>
+    <div class="kpi"><div class="k">Em aberto</div><div class="v num ${open?'neg':''}">${brl(open)}</div></div>
+    <div class="kpi"><div class="k">Pagos até o vencimento</div><div class="v num">${pctV(pont)}</div></div></div>
+    <div class="chart"><canvas id="chCliHist"></canvas></div>
+    <div class="tw2" style="margin-top:12px;max-height:320px"><table class="cp"><thead><tr><th>Emissão</th><th>Vencimento</th><th style="text-align:left">Categoria</th><th style="text-align:left">Empresa</th><th>NF</th><th>Valor</th><th>Em aberto</th><th style="text-align:left">Situação</th></tr></thead><tbody>${L.slice().reverse().map(t=>`<tr><td>${fmtD(t.emis)}</td><td>${fmtD(t.venc)}</td><td style="text-align:left">${esc(t.cat)}</td><td style="text-align:left">${esc(coShort(t.emp))}</td><td>${esc(t.nf||'')}</td><td class="num">${n2(t.valor)}</td><td class="num ${t.aberto>0.004&&!PAID.test(t.sit)?'neg':''}">${t.aberto>0.004&&!PAID.test(t.sit)?n2(t.aberto):'–'}</td><td style="text-align:left">${esc(t.sit)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  $('#ftCliClose').onclick=()=>{UI.ftCli='';$('#ftCliQ').value='';render();};
+  if(charts.ch)charts.ch.destroy();const o=baseChartOpts();
+  const ds=[{type:'bar',label:'Faturado',data:chartM.map(m=>byM[m]||0),backgroundColor:cssv('--brand-2'),borderRadius:3,maxBarThickness:22,order:2}];
+  if(Object.keys(bud).length)ds.push({type:'line',label:'Orçado',data:chartM.map(m=>bud[m]??null),borderColor:cssv('--warn'),backgroundColor:cssv('--warn'),borderDash:[5,4],pointRadius:2,order:1});
+  charts.ch=new Chart($('#chCliHist'),{data:{labels:chartM.map(ymLabel),datasets:ds},options:o});
+}
+
 /* ======================= TÍTULOS ======================= */
 const BUCKETS=[
   {id:'v90',l:'Vencido há mais de 90 dias',s:'Vencido +90d',f:d=>d>90,c:'--loss'},
@@ -1568,6 +1935,7 @@ function renderProj(op){
 
 /* ======================= FATURAMENTO ======================= */
 function renderFat(){
+  try{renderCliHist();}catch(e){console.error(e);}
   const emps=selEmps();const lim=UI.ftFut?'9999-12-31':UI.base;
   const all=DB.titles.filter(t=>emps.has(t.emp)&&t.tipo==='R'&&t.cat.startsWith('Clientes - ')&&t.emis&&t.emis<=lim);
   const clear=msg=>{$('#ftKpi').innerHTML=`<div class="cell"><div class="k">${msg}</div></div>`;$('#ftTop').innerHTML='';['ft','cl'].forEach(k=>{if(charts[k]){charts[k].destroy();charts[k]=null;}});};
@@ -1669,8 +2037,8 @@ async function decryptPayload(u8,pass){
   return JSON.parse(new TextDecoder().decode(await gz(new Uint8Array(plain),'d')));
 }
 function buildPayload(){
-  const {cash,titles,gl,openings,splits,files,empMap,plan,drePlan,models,logo,rev}=DB;
-  return {v:1,rev,publishedAt:new Date().toISOString(),data:{cash:cash.map(({_g,_c,_t,_m,...r})=>r),gl:(gl||[]).map(({_A,_C,_B,_m,_g,...r})=>r),titles,openings,splits,files,empMap,plan,drePlan,models,logo}};
+  const {cash,titles,gl,openings,splits,files,empMap,plan,drePlan,models,logo,rev,budget}=DB;
+  return {v:1,rev,publishedAt:new Date().toISOString(),data:{cash:cash.map(({_g,_c,_t,_m,...r})=>r),gl:(gl||[]).map(({_A,_C,_B,_m,_g,...r})=>r),titles,openings,splits,files,empMap,plan,drePlan,models,logo,budget}};
 }
 function b64(u8){let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));return btoa(s);}
 async function ghErr(r){let m='';try{m=(await r.json()).message||'';}catch(e){}
@@ -1801,7 +2169,7 @@ function renderPublish(){
 
 /* ======================= BASES ======================= */
 function renderBases(){
-  const kn={caixa:'Fluxo de caixa',si:'Saldo inicial',titulos:'Títulos',plano:'Plano de contas',razao:'Razão contábil',planodre:'Plano de contas DRE'};
+  const kn={caixa:'Fluxo de caixa',si:'Saldo inicial',titulos:'Títulos',plano:'Plano de contas',razao:'Razão contábil',planodre:'Plano de contas DRE',orcamento:'Orçamento'};
   const cntBy={};for(const r of DB.cash)cntBy[r.src]=(cntBy[r.src]||0)+1;for(const t of DB.titles)cntBy['T:'+t.src]=(cntBy['T:'+t.src]||0)+1;
   const fs=DB.files.slice().sort((a,b)=>a.kind===b.kind?(a.name<b.name?-1:1):(a.kind<b.kind?-1:1));
   const del=(f,i)=>`<button class="btn sm danger" type="button" data-del="${i}">Excluir</button>`;
@@ -1812,6 +2180,7 @@ function renderBases(){
     if(f.kind==='si'){const sp=DB.splits[f.fid];const sum=sp?Object.values(sp.accounts).reduce((a,b)=>a+b,0):0;const o=openingFor(f.fid);const ok=sp&&o.date===sp.date&&Math.abs(o.value-sum)<0.05;
       return `<tr><td>${esc(f.name)}</td><td>${kn.si}</td><td>${esc(coShort(DB.empMap[f.fid]))}</td><td class="r num">${sp?Object.keys(sp.accounts).length:0} contas</td><td>${fmtD(f.min)}</td><td class="r num">${brl(o.value)}</td><td class="r num ${ok?'ok':'bad'}">${brl(sum)} ${ok?'✓':'≠'}</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}
     if(f.kind==='razao'){const n=(DB.gl||[]).filter(r=>r.src===f.name).length;return `<tr><td>${esc(f.name)}</td><td>Razão contábil</td><td>${esc(coShort(DB.empMap[f.fid]||''))}</td><td class="r num">${fInt.format(n)}</td><td>${fmtD(f.min)} a ${fmtD(f.max)}</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}
+    if(f.kind==='orcamento')return `<tr><td>${esc(f.name)}</td><td>Orçamento</td><td>Todas</td><td class="r num">${fInt.format(f.rows||0)} linhas</td><td>${fmtD(f.min)} a ${fmtD(f.max)}</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;
     if(f.kind==='planodre')return `<tr><td>${esc(f.name)}</td><td>Plano de contas DRE</td><td>Todas</td><td class="r num">${fInt.format(f.rows||0)} contas</td><td>–</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;
     if(f.kind==='plano')return `<tr><td>${esc(f.name)}</td><td>${kn.plano}</td><td>Todas</td><td class="r num">${fInt.format(f.rows||0)} categorias</td><td>–</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;
     return `<tr><td>${esc(f.name)}</td><td>${kn.titulos}</td><td>${(f.emps||[]).map(coShort).join(', ')}</td><td class="r num">${fInt.format(cntBy['T:'+f.name]||0)}</td><td>${fInt.format(f.novos||0)} novos na carga</td><td class="r">–</td><td class="r">–</td><td>${at}</td><td>${del(f,i)}</td></tr>`;}).join('')}</tbody></table>
@@ -1836,7 +2205,7 @@ function applyTheme(){const t=DB.theme||'auto';if(t==='auto')document.documentEl
 /* ======================= render geral ======================= */
 function switchView(v){UI.view=v;scrollTo({top:0});document.querySelectorAll('nav.tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.v===v));render();}
 function render(){
-  const has=DB.cash.length||DB.titles.length||(DB.gl||[]).length;
+  const has=DB.cash.length||DB.titles.length||(DB.gl||[]).length||!!DB.budget;
   const free=['bases','plano'].includes(UI.view);
   $('#emptyState').hidden=!!has||free;
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+UI.view&&(has||free)));
@@ -1844,6 +2213,7 @@ function render(){
   try{
     if(UI.view==='caixa')renderCaixa();
     if(UI.view==='dre')renderDre();
+    if(UI.view==='orc')renderOrc();
     if(UI.view==='titulos')renderTitulos();
     if(UI.view==='fat')renderFat();
     if(UI.view==='plano')renderPlano();
@@ -1875,6 +2245,8 @@ $('#mxCsv').onclick=()=>{if(!MX)return;const txt='\uFEFF'+MX.map(r=>r.map((c,i)=
 $('#prDate').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.prDate=b.dataset.d;$('#prDate').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
 $('#prOver').onchange=e=>{UI.prOver=e.target.checked;render();};
 $('#ftFut').onchange=e=>{UI.ftFut=e.target.checked;render();};
+$('#ftCliQ').onchange=e=>{UI.ftCli=e.target.value;render();setTimeout(()=>$('#ftCliBox').scrollIntoView({behavior:'smooth',block:'start'}),60);};
+$('#ftCliQ').onkeydown=e=>{if(e.key==='Enter'){UI.ftCli=e.target.value;render();}};
 $('#plMode').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.plMode=b.dataset.m;render();};
 $('#drSeg').onclick=e=>{const b=e.target.closest('button');if(!b)return;UI.dreSeg=b.dataset.s;$('#drSeg').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render();};
 $('#drSearch').oninput=e=>{UI.dreQ=e.target.value;clearTimeout(e.target._t);e.target._t=setTimeout(render,250);};
